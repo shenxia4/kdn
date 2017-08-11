@@ -45,6 +45,8 @@ main <- function()
         nSamp = nSamp, niter = niter, tol = tol)
     proc.time()-time1
 
-    pred0 <- readRDS('dat/s525.rds')
-    identical(pred0, pred1)
+    pred0 <- readRDS('dat/s525b.rds')
+    all.equal(pred0, pred1)
+
+    list(ref=pred0, out=pred1)
 }
