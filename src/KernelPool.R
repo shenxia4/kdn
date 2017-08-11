@@ -31,7 +31,7 @@ getCAR <- function(geno, maf, weights)
 {
   ## CAR Kernel
   S<-getIBS(geno,weights)/(2*sum(weights));
-  if(weights==1){S<-getIBS(geno,weights)/(2*ncol(geno))};
+  if(all(weights==1)){S<-getIBS(geno,weights)/(2*ncol(geno))};
   diag(S)<-0;
   diag<-rowSums(S);
   D<-diag(diag);

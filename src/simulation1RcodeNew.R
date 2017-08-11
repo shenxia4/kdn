@@ -1,48 +1,50 @@
 #Simulation Setup 1 Codes
-setwd("C:/Users/xshen/Desktop/Reasearch Projects/Deep Learning Project/Simulation/Simulation1/DeepLearningSimulation1")
-source("./Source/SimulationSetUp.R")
+source("src/SimulationSetUp.R")
+source("src/benchmark.R")
 
-dataList <- simSetUp();
-ped <- dataList$ped;
-info <- dataList$info;
+main <- function()
+{
+    dataList <- simSetUp()
+    ped <- dataList$ped
+    nfo <- dataList$nfo
 
+    tag <- 2
+    func.frq <- 0.5                     # number of functional alleles
 
-tag <- 2;
-func.frq <- 0.5;         #number of functional alleles
+    nS <- 2                             # number of simulations
+    nSeq <- 3e4                         # length of the genomic region
 
-nS <- 2;     #number of simulations
-nSeq <- 3e4; #length of the genomic region
+    nN<-100                             # number of subjects
 
-nN<-100; #or 100, 1000  #number of subjects
+                                        # Parameters for generating traits
+    traitMu <- rep(0, nN)
+    ## trait simulated based on identity matrix, the covariance matrix of random effect
+    traitSigma <- diag(rep(1,nN))
+    traitFun <- "identity"
+    sigmaR <- 1
+    phi <- 1
+    order <- 1
 
-# Parameters for generating traits
-traitMu <- rep(0, nN); 
-traitSigma <- diag(rep(1,nN));  # trait simulated based on identity matrix, the covariance matrix of random effect
-traitFun <- "identity";
-sigmaR <- 1;
-phi <- 1;
-order <- 1;
+    ## Parameters for gradient descent algorithm
+    fromBaseKernel <- c("CAR", "identity")
+    innerKernelName <- c("identity", "product")
+    lambdajVec <- c(1,1)
+    lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T)
+    nSamp <- 10
+    niter <- 10
+    tol <- 1e-5
 
-# Parameters for gradient descent algorithm
-fromBaseKernel <- c("CAR", "identity");
-innerKernelName <- c("identity", "product");
-lambdajVec <- c(1,1);
-lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T);
-nSamp <- 10;
-niter <- 10;
-tol <- 1e-5;
+    time1 <- proc.time()
+    pred1 <- getPred(
+        tag = tag, func.frq = func.frq, nS = nS, nSeq = nSeq, nN = nN, info = nfo, ped = ped,
+        traitMu = traitMu, traitSigma = traitSigma, traitFun = traitFun,
+        sigmaR = sigmaR, phi = phi, order = order,
+        fromBaseKernel = fromBaseKernel, UserDef = NULL, 
+        lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, varPhi = 1,
+        innerKernelName = innerKernelName,
+        nSamp = nSamp, niter = niter, tol = tol)
+    proc.time()-time1
 
-time1 <- proc.time()
-pred1 <- getPred(tag = tag, func.frq = func.frq, nS = nS, nSeq = nSeq, nN = nN, info = info, ped = ped,
-                 traitMu = traitMu, traitSigma = traitSigma, traitFun = traitFun,
-                 sigmaR = sigmaR, phi = phi, order = order,
-                 fromBaseKernel = fromBaseKernel, UserDef = NULL, 
-                 lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, varPhi = 1,
-                 innerKernelName = innerKernelName,
-                 nSamp = nSamp, niter = niter, tol = tol);
-proc.time()-time1
-
-
-
-
-
+    pred0 <- readRDS('dat/s525.rds')
+    identical(pred0, pred1)
+}

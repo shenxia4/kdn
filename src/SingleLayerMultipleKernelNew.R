@@ -1,35 +1,34 @@
-# source("HelperFunctions.R")
-# source("KernelPool.R")
+## source("HelperFunctions.R")
+## source("KernelPool.R")
 
-# Function that calculate the combination of kernel matrices
-# HUid is the index for hidden units
+## Function that calculate the combination of kernel matrices
+## HUid is the index for hidden units
 CalcBaseKernelComb <- function(lambdaliMat, baseKernelList, HUid)
 {
-  n <- dim(baseKernelList[[1]])[1];  # number of individuals
-  L <- dim(lambdaliMat)[1];              # number of base kernel matrices
-  
-  IdMat <- diag(rep(1,n));
-  
-  ResultMatList <- mapply(FUN = '*', baseKernelList, exp(lambdaliMat[, HUid]), SIMPLIFY = FALSE);
-  ResultMat <- Reduce(f = '+', ResultMatList) + IdMat;
-  
-  return(ResultMat)
+    n <- dim(baseKernelList[[1]])[1]; # number of individuals
+    L <- dim(lambdaliMat)[1];         # number of base kernel matrices
+    
+    IdMat <- diag(rep(1,n));
+    
+    ResultMatList <- mapply(FUN = '*', baseKernelList, exp(lambdaliMat[, HUid]), SIMPLIFY = FALSE);
+    ResultMat <- Reduce(f = '+', ResultMatList) + IdMat;
+    
+    return(ResultMat)
 }
 
 
-# Function that calculate the combination of kernel matrices in the inner layer
+## Function that calculate the combination of kernel matrices in the inner layer
 CalcInnerKernelComb <- function(lambdajVec, innerKernelList)
 {
-  n <- dim(innerKernelList[[1]])[1];    # number of individuals;
-  J <- length(lambdajVec);            # number of inner layer kernel matrices
-  
-  IdMat <- diag(rep(1,n));
-  
-  ResultMatList <- mapply(FUN = '*', innerKernelList, exp(lambdajVec), SIMPLIFY = FALSE);
-  ResultMat <- Reduce(f = '+', ResultMatList) + IdMat
-  
-  return(ResultMat)
-  
+    n <- dim(innerKernelList[[1]])[1];  # number of individuals;
+    J <- length(lambdajVec);   # number of inner layer kernel matrices
+    
+    IdMat <- diag(rep(1,n));
+    
+    ResultMatList <- mapply(FUN = '*', innerKernelList, exp(lambdajVec), SIMPLIFY = FALSE);
+    ResultMat <- Reduce(f = '+', ResultMatList) + IdMat
+    
+    return(ResultMat)
 }
 
 
@@ -43,93 +42,125 @@ CalcInnerKernelComb <- function(lambdajVec, innerKernelList)
 # baseKernelList is a matrix list containing the L base kernel matrices;
 # innerKernelName list the name of all the kernels to be used in the inner layer;
 # baseKernelList can have more than L elements and innerKernelName can have more than J elements. If so, the first L and J elements will be used;
-CalcDerivMultiKernel <- function(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3)
+CalcDerivMultiKernel <- function
+(
+    lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3)
 {
-  L <- dim(lambdaliMat)[1]; # number of base kernel matrices
-  J <- length(lambdajVec); # number of inner layer matrices
-  m <- dim(lambdaliMat)[2]; # number of hidden units;
-  n <- length(trait);   # number of individuals
-  
-  
-  # Initialization variables
-  IdMat <- diag(rep(1,n));
-  Amat <- DevAPhi <- matrix(0, nrow = n, ncol = n);   # used to store results for matrix A
-  DevALambdajList <- InitializeList(m = J, n = n);   # used to store results for derivative of A and A^2 wrt lambda's
-  DevALambdaliList <- InitializeList(m = L * m, n = n);
-  trMatPhi <- 0;
-  baseKernelCombList <- list();
-  baseKernelCombInvList <- list();
-  innerKernelCombList <- list();
-  innerKernelCombInvList <- list();
-  sampleUMat <- matrix(0, nrow = n, ncol = m);
-  
-  # Choose the first L and first J kernels in baseKernelList and innerKernelList respectively
-  baseKernelList <- baseKernelList[1:L];
-  innerKernelList <- list();
-  innerKernelName <- innerKernelName[1:J];
-  
-  # Calculate the covariance matrices for the m hidden units (DOES NOT DEPEND ON U MATRIX!)
-  for (i in 1:m)
-  {
-    baseKernelCombList[[i]] <- CalcBaseKernelComb(lambdaliMat = lambdaliMat, baseKernelList = baseKernelList, HUid = i);
-    baseKernelCombInvList[[i]] <- FastInverseMatrix(baseKernelCombList[[i]]);
-  }
-  
-  # Do sampling here to calculate expectations
-  for(s in 1:nSamp)
-  {
-    # Sample U from the multivariate normal distribution
-    for(i in 1:m)
+    L <- dim(lambdaliMat)[1];           # number of base kernel matrices
+    J <- length(lambdajVec);            # number of inner layer matrices
+    m <- dim(lambdaliMat)[2];           # number of hidden units;
+    n <- length(trait);                 # number of individuals
+    
+    
+    ## Initialization variables
+    IdMat <- diag(rep(1,n));
+    Amat <- DevAPhi <- matrix(0, nrow = n, ncol = n); # results for matrix A
+    DevALambdajList <- InitializeList(m = J, n = n); # results for derivative of A and A^2 wrt lambda's
+    DevALambdaliList <- InitializeList(m = L * m, n = n);
+    trMatPhi <- 0;
+    baseKernelCombList <- list();
+    baseKernelCombInvList <- list();
+    innerKernelCombList <- list();
+    innerKernelCombInvList <- list();
+    sampleUMat <- matrix(0, nrow = n, ncol = m);
+    
+    ## Choose the first L and first J kernels in baseKernelList and innerKernelList respectively
+    baseKernelList <- baseKernelList[1:L];
+    innerKernelList <- list();
+    innerKernelName <- innerKernelName[1:J];
+    
+    ## Calculate the covariance matrices for the m hidden units (DOES NOT DEPEND ON U MATRIX!)
+    for (i in 1:m)
     {
-      sampleUMat[,i] <- mvrnorm(n = 1, mu = rep(0,n), Sigma = baseKernelCombInvList[[i]]);
-      trMatPhi <- trMatPhi + baseKernelCombInvList[[i]] %*% crossprod(t(sampleUMat[,i]));
+        baseKernelCombList[[i]] <- CalcBaseKernelComb(
+            lambdaliMat = lambdaliMat, baseKernelList = baseKernelList, HUid = i);
+        baseKernelCombInvList[[i]] <- FastInverseMatrix(baseKernelCombList[[i]]);
     }
+    ## xong: compare
+    ## 1.1) kernel recombination
+    bkn <- do.call(cbind, lapply(c(baseKernelList, list(diag(n))), as.vector))
+    dim(bkn) <- c(n, n, (L + 1))
+    bkn <- kW(bkn, rbind(exp(lambdaliMat), 1))
     
-    # Obtain the inner layer kernel matrices
-    for (j in 1:J)
+    for(i in 1:m) print(all.equal(bkn[, , i], baseKernelCombList[[i]]))
+    ## 1.2) inversed recombination
+    ibk <- apply(bkn, 3, FastInverseMatrix)
+    dim(ibk) <- dim(bkn)
+    for(i in 1:m) print(all.equal(ibk[, , i], baseKernelCombInvList[[i]]))
+    
+    ## Do sampling here to calculate expectations
+    for(s in 1:nSamp)
     {
-      innerKernelList[[j]] <- findKernel(innerKernelName[j], geno = sampleUMat);
-    }
-    
-    # Calculate the linear combination of inner layer kernel matrices
-    innerKernelCombList[[s]] <- CalcInnerKernelComb(lambdajVec = lambdajVec, innerKernelList = innerKernelList);
-    innerKernelCombInvList[[s]] <- FastInverseMatrix(innerKernelCombList[[s]]);
-    
-    # For matrix A
-    Amat <- (1/nSamp) * (Amat + innerKernelCombInvList[[s]]);
-    
-    # For derivatives of A with respect to lambda_j
-    for (j in 1:J)
-    {
-      DevALambdajList[[j]] <- (1/nSamp) * (DevALambdajList[[j]] - exp(lambdajVec[j])  * innerKernelCombInvList[[s]] %*% 
-                                             innerKernelList[[j]] %*%  innerKernelCombInvList[[s]]);
-    }
-    
-    # For derivatives of A with respect to lambda_{li}
-    for(k in 1:(L*m))
-    {
-      Lindx <- getIndex(k, L, m)[1];
-      mindx <- getIndex(k, L, m)[2];
-      
-      trMat <- baseKernelCombInvList[[mindx]] %*% baseKernelList[[Lindx]] %*% baseKernelCombInvList[[mindx]] %*% 
+        ## Sample U from the multivariate normal distribution
+        for(i in 1:m)
+        {
+            sampleUMat[,i] <- mvrnorm(n = 1, mu = rep(0,n), Sigma = baseKernelCombInvList[[i]]);
+            trMatPhi <- trMatPhi + baseKernelCombInvList[[i]] %*% crossprod(t(sampleUMat[,i]));
+        }
+        
+        ## Obtain the inner layer kernel matrices
+        for (j in 1:J)
+        {
+            innerKernelList[[j]] <- findKernel(innerKernelName[j], geno = sampleUMat);
+        }
+        
+        ## Calculate the linear combination of inner layer kernel matrices
+        innerKernelCombList[[s]] <- CalcInnerKernelComb(
+            lambdajVec = lambdajVec, innerKernelList = innerKernelList);
+        innerKernelCombInvList[[s]] <- FastInverseMatrix(innerKernelCombList[[s]]);
+        ## xtong: compare
+        ## 2.1) inner kernel recombination
+        ikn <- do.call(cbind, lapply(c(innerKernelList, list(diag(n))), as.vector))
+        dim(ikn) <- c(n, n, (J + 1))
+        ikn <- kW(ikn, rbind(as.matrix(exp(lambdajVec)), 1))
+        ## 2.2) inversed recombination
+        iik <- apply(ikn, 3, FastInverseMatrix)
+        dim(iik) <- dim(ikn)
+        for(i in 1:NCOL(lambdajVec)) print(all.equal(iik[, , i], innerKernelCombInvList[[s]]))
+        
+        ## For matrix A
+        Amat <- (1/nSamp) * (Amat + innerKernelCombInvList[[s]]);
+        
+        ## For derivatives of A with respect to lambda_j
+        for (j in 1:J)
+        {
+            DevALambdajList[[j]] <- (1/nSamp) * (DevALambdajList[[j]] - exp(lambdajVec[j]) * 
+                innerKernelCombInvList[[s]] %*% innerKernelList[[j]] %*% innerKernelCombInvList[[s]]);
+        }
+        
+        ## For derivatives of A with respect to lambda_{li}
+        for(k in 1:(L*m))
+        {
+            Lindx <- getIndex(k, L, m)[1];
+            mindx <- getIndex(k, L, m)[2];
+            
+            trMat <- baseKernelCombInvList[[mindx]] %*%
+                baseKernelList[[Lindx]] %*%
+                baseKernelCombInvList[[mindx]] %*%
                 (baseKernelCombList[[mindx]] - exp(-phi) * crossprod(t(sampleUMat[,mindx])));
-      trVal <- tr(trMat);
-      DevALambdaliList[[k]] <- (1/nSamp) * (DevALambdaliList[[k]] - (exp(lambdaliMat[Lindx, mindx]) / 2) * trVal * innerKernelCombInvList[[s]]);
+            trVal <- tr(trMat);
+            DevALambdaliList[[k]] <- (1/nSamp) *
+                (DevALambdaliList[[k]] -
+                 (exp(lambdaliMat[Lindx, mindx]) / 2) * trVal * innerKernelCombInvList[[s]]);
+        }
+        
+        
+        ## For derivative of phi
+        DevAPhi <- (1/nSamp) * (DevAPhi - (1/2) *
+                                (m * n - exp(-phi) * tr(trMatPhi)) * innerKernelCombInvList[[s]]);
+        
     }
     
+    returnList <- list(L = L, m = m, n = n, J = J,
+                       baseKernelCombList = baseKernelCombList,
+                       baseKernelCombInvList = baseKernelCombInvList,
+                       innerKernelList = innerKernelList,
+                       innerKernelCombList = innerKernelCombList,
+                       innerKernelCombInvList = innerKernelCombInvList,
+                       Amat = Amat, DevALambdajList = DevALambdajList,
+                       DevALambdaliList = DevALambdaliList, DevAPhi = DevAPhi);
+    return(returnList)
     
-    # For derivative of phi
-    DevAPhi <- (1/nSamp) * (DevAPhi - (1/2) * (m * n - exp(-phi) * tr(trMatPhi)) * innerKernelCombInvList[[s]]);
-    
-  }
-  
-  returnList <- list(L = L, m = m, n = n, J = J,
-                     baseKernelCombList = baseKernelCombList, baseKernelCombInvList = baseKernelCombInvList,
-                     innerKernelList = innerKernelList, innerKernelCombList = innerKernelCombList, innerKernelCombInvList = innerKernelCombInvList,
-                     Amat = Amat, DevALambdajList = DevALambdajList, DevALambdaliList = DevALambdaliList, DevAPhi = DevAPhi);
-  
-  return(returnList)
-  
 }
 
 
