@@ -95,7 +95,7 @@ getPred <- function
     seg.pos <- runif(nS, 0, 1e6-nSeq);
     n.rare <- NULL;
     
-    pb <- txtProgressBar(min = 0, max = nS, style = 3); cat("\n");
+    ## pb <- txtProgressBar(min = 0, max = nS, style = 3); cat("\n");
     for(i in 1:nS)
     {
         idx <- (info$pos > seg.pos[i] & info$pos < seg.pos[i] + nSeq); # get a genomic region
@@ -138,11 +138,10 @@ getPred <- function
         predErr.BLUPK[i] <- t(trait - predVal.BLUPK) %*% (trait - predVal.BLUPK);
         predErr.BLUPI[i] <- t(trait - predVal.BLUPI) %*% (trait - predVal.BLUPI);
         
-        
-        setTxtProgressBar(pb, i);
+        ## setTxtProgressBar(pb, i);
         cat("\n");
     }
-    close(pb)
+    ## close(pb)
     set.seed(NULL);
     
     result <- matrix(

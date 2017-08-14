@@ -148,7 +148,7 @@ CalcDerivLoss <- function
     {
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
     })
-    dvt$phi <- t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y
+    dvt$phi <- drop(t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y)
 
     list(Amat=Amat, dvt=dvt, derivLoss=derivLoss)
 }
@@ -171,24 +171,30 @@ GradDesc <- function
     m <- NCOL(lambdaliMat)              # number of hidden units (U)
     J <- NROW(lambdajVec)               # number of inner kernels
 
-    ## Gradients
+    ## Initial Gradients
     lossDeriv <- derivList$derivLoss;
-    ldv <- list(derivList$dvt)
+    ldv <- list()
+    ldv[[2]] <- derivList$dvt
   
-    ## Combine all parameters in a vector
-    paraVec <- c(c(lambdajVec), c(t(lambdaliMat)), phi);
+    ## Initial parameters in a vector
+    paraVec <- c(c(lambdajVec), c(t(lambdaliMat)), phi)
+    lpr <- list()
+    lpr[[1]] <- list(inr=lambdajVec, bas=lambdaliMat, phi=phi)
+
+    ## Initial Learning Rate
+    lr <- getLearningRate(lr=lr, type = "Specified")
     
     ## Matrix used to store the iteration result
-    paraMat <- matrix(0, nrow = niter, ncol = length(paraVec));
+    paraMat <- matrix(0, nrow=niter, ncol=length(paraVec))
     paraMat[1,] <- paraVec;
-  
     for(i in 2:niter)
     {
         cat("Iteration", i, "\n");
         if(i == 2)
         {
             lr <- getLearningRate(lr = lr, type = "Specified");
-            paraMat[i,] <- paraMat[i-1,] - lr * lossDeriv;
+            paraMat[i, ] <- paraMat[i-1, ] - lr * lossDeriv;
+            lpr[[i]] <- mapply(function(p, d) p - lr * d, lpr[[1]], ldv[[i]])
             devFxn <- lossDeriv;
         }
         else
@@ -196,57 +202,68 @@ GradDesc <- function
             xn <- paraMat[i-1, ]; xn1 <- paraMat[i-2, ];
             devFxn1 <- devFxn;
             
-            lambdajVecIter <- paraMat[i-1, 1:J];
-            lambdaliMatIter <- matrix(paraMat[i-1, (J+1):(J+L*m)], nrow = L, byrow = T);
-            phiIter <- paraMat[i-1, length(paraVec)];
-      
             derivListIter <- CalcDerivLoss(
-                lambdajVec = lambdajVecIter, lambdaliMat = lambdaliMatIter, phi = phiIter,
+                lambdajVec = lpr[[i-1]]$inr,
+                lambdaliMat = lpr[[i-1]]$bas,
+                phi = lpr[[i-1]]$phi,
                 baseKernelList = baseKernelList, innerKernelName = innerKernelName,
                 trait = trait, nSamp = nSamp);
+
             lossDerivInter <- derivListIter$derivLoss;
             devFxn <- lossDerivInter;
       
-            lr <- getLearningRate(xn, xn1, devFxn, devFxn1, type = "B-BMethod");
-            
+            lr <- getLearningRate(xn, xn1, devFxn, devFxn1, type = "B-BMethod")
+            ldv[[i]] <- derivListIter$dvt
+            lr1 <- getLearningRate(
+                unlist(lpr[[i-1]]), unlist(lpr[[i-2]]),
+                unlist(ldv[[i]]), unlist(ldv[[i-1]]), type = "B-BMethod")
             paraMat[i,] <- paraMat[i-1,] - lr * lossDerivInter;
+
+            lpr[[i]] <- mapply(function(p, d) p - lr * d, lpr[[i-1]], ldv[[i]])
         }
-    
-        cat("Learning Rate = ", lr, "\n");
-        cat("lambdaj = [", paraMat[i, 1:J], "], lambdali = [", paraMat[i, (J+1):(J+L*m)],
-            "],phi = ", paraMat[i, length(paraVec)], "\n");
-    
+        
+        cat("LR = ", lr, "\n");
+        cat("lmd.j=[", paraMat[i, 1:J], "], lmd.li=[", paraMat[i, (J+1):(J+L*m)],
+            "], phi=", paraMat[i, length(paraVec)], "\n");
+
         if(sum(abs(paraMat[i,] - paraMat[i-1,])) < tol)
         {break;}
     }
-  
-    gradDescList <- list(
-        lambdajVec = paraMat[i, 1:J],
-        lambdaliMat = matrix(paraMat[i, (J+1):(J+L*m)], nrow = L, byrow = T),
-        phi = paraMat[i, length(paraVec)])
-    returnList <- c(derivList, gradDescList)
+
+    print(all.equal(lpr[[i]]$inr, paraMat[i, 1:J]))
+    print(all.equal(lpr[[i]]$bas, matrix(paraMat[i, (J+1):(J+L*m)], nrow = L, byrow = T)))
+    print(all.equal(lpr[[i]]$phi, paraMat[i, length(paraVec)]))
+    gdl <- list(lambdajVec = lpr[[i]]$inr, lambdaliMat = lpr[[i]]$bas, phi = lpr[[i]]$phi)
+    returnList <- c(derivList, gdl)
     return(returnList)
 }
 
 
 # Function for prediction error
-CalcPredErr <- function(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5)
+CalcPredErr <- function
+(
+    lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName,
+    trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5)
 {
-  y <- trait;
-  gradDescList <- GradDesc(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp, niter, lr, tol);
-  
-  lambdajVecOpt <- gradDescList$lambdajVec;
-  lambdaliMatOpt <- gradDescList$lambdaliMat;
-  phiOpt <- gradDescList$phi;
-  
-  optValList <- CalcDerivLoss(lambdajVec = lambdajVecOpt, lambdaliMat = lambdaliMatOpt, phi = phiOpt,
-                              baseKernelList = baseKernelList, innerKernelName = innerKernelName, trait = trait, nSamp = nSamp);
-  
-  # Calculate prediction error
-  optAMat <- optValList$Amat;
-  predErr <- t(y) %*% optAMat %*% y;
-  
-  optimList <- list(lambdajVec = lambdajVecOpt, lambdaliMat = lambdaliMatOpt, phi = phiOpt, predErr = predErr);
-  returnList <- c(optValList, optimList);
-  return(returnList)
+    y <- trait;
+    gradDescList <- GradDesc(
+        lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp, niter, lr, tol);
+    
+    lambdajVecOpt <- gradDescList$lambdajVec;
+    lambdaliMatOpt <- gradDescList$lambdaliMat;
+    phiOpt <- gradDescList$phi;
+    
+    optValList <- CalcDerivLoss(
+        lambdajVec = lambdajVecOpt, lambdaliMat = lambdaliMatOpt, phi = phiOpt,
+        baseKernelList = baseKernelList, innerKernelName = innerKernelName,
+        trait = trait, nSamp = nSamp);
+    
+    ## Calculate prediction error
+    optAMat <- optValList$Amat;
+    predErr <- t(y) %*% optAMat %*% y;
+    
+    optimList <- list(
+        lambdajVec = lambdajVecOpt, lambdaliMat = lambdaliMatOpt, phi = phiOpt, predErr = predErr);
+    returnList <- c(optValList, optimList);
+    return(returnList)
 }
