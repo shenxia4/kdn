@@ -42,25 +42,24 @@ CalcInnerKernelComb <- function(lambdajVec, innerKernelList)
 # baseKernelList is a matrix list containing the L base kernel matrices;
 # innerKernelName list the name of all the kernels to be used in the inner layer;
 # baseKernelList can have more than L elements and innerKernelName can have more than J elements. If so, the first L and J elements will be used;
-CalcDerivMultiKernel <- function
+CalcDerivLoss <- function
 (
     lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3)
 {
-    L <- dim(lambdaliMat)[1];           # number of base kernel matrices
-    J <- length(lambdajVec);            # number of inner layer matrices
-    m <- dim(lambdaliMat)[2];           # number of hidden units;
-    n <- length(trait);                 # number of individuals
-    
-    
+    y <- trait
+
+    n <- NROW(y)                        # sample size
+    L <- nrow(lambdaliMat)              # number of base kernels
+    m <- ncol(lambdaliMat)              # number of hidden units (U)
+    J <- NROW(lambdajVec)               # number of inner kernels
+
     ## Initialization variables
-    IdMat <- diag(rep(1,n));
-    Dev2 <- Amat <- DevAPhi <- matrix(0, nrow = n, ncol = n); # results for matrix A
-    DevALambdajList <- InitializeList(m = J, n = n); # results for derivative of A and A^2 wrt lambda's
-    DevALambdaliList <- InitializeList(m = L * m, n = n);
-    baseKernelCombList <- list();
-    baseKernelCombInvList <- list();
-    innerKernelCombInvList <- list();
-    sampleUMat <- matrix(0, nrow = n, ncol = m);
+    Amat <- DevAPhi <- matrix(0, nrow = n, ncol = n); # results for matrix A
+
+    ## results for derivative of A and A^2 wrt lambda's
+    DevALambdajList <- replicate(J, matrix(.0, n, n), simplify=F)
+    DevALambdaliList <- replicate(L * m, matrix(.0, n, n), simplify=F)
+    UMat <- matrix(0, nrow = n, ncol = m);
     
     ## Choose the first L and first J kernels in baseKernelList and innerKernelList respectively
     baseKernelList <- baseKernelList[1:L];
@@ -72,165 +71,161 @@ CalcDerivMultiKernel <- function
     dim(bkn) <- c(n, n, (L + 1))
     bknCmb <- KW(bkn, rbind(exp(lambdaliMat), 1))
     ## hidden U's variance covariance
-    UVC <- apply(bknCmb, 3, FastInverseMatrix) 
-    dim(UVC) <- dim(bknCmb)
+    UCV <- apply(bknCmb, 3, FastInverseMatrix) 
+    dim(UCV) <- dim(bknCmb)
     
     ## Do sampling here to calculate expectations
+    dA.inr <- array(0, c(n, n, length(lambdajVec)))
+    dA.bas <- array(0, c(n, n, dim(lambdaliMat)))
+    dA.phi <- matrix(0, n, n)
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
-        for(i in 1:m)
-            sampleUMat[,i] <- mvrnorm(n = 1, mu = rep(0,n), Sigma = UVC[, ,i]);
-        trPhi <- sum(UKV(sampleUMat, UVC))
+        UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, n), v))
+        trPhi <- sum(UKV(UMat, UCV))
         
         ## Obtain the inner layer kernel matrices
-        for (j in 1:J)
-            innerKernelList[[j]] <- findKernel(innerKernelName[j], geno = sampleUMat);
+        ## for (j in 1:J)
+        ##     innerKernelList[[j]] <- findKernel(innerKernelName[j], geno = UMat);
+        innerKernelList <- lapply(innerKernelName, findKernel, geno=UMat)
         ikn <- do.call(cbind, lapply(c(innerKernelList, list(diag(n))), as.vector))
         dim(ikn) <- c(n, n, (J + 1))
 
         ## inversed re-combination of inner kernels serves as predicted VCV of Y
-        YVC <- FastInverseMatrix(KW(ikn, rbind(as.matrix(exp(lambdajVec)), 1)))
+        YCV <- FastInverseMatrix(KW(ikn, rbind(as.matrix(exp(lambdajVec)), 1)))
 
         ## For matrix A
-        Amat <- (1/nSamp) * (Amat + YVC);
+        Amat <- (1/nSamp) * (Amat + YCV);
         
         ## For derivatives of A with respect to lambda_j
-        tmp <- YVC %*% YVC
+        tmp <- YCV %*% YCV
         for (j in 1:J)
         {
             DevALambdajList[[j]] <- (1/nSamp) * (
                 DevALambdajList[[j]] - exp(lambdajVec[j]) * innerKernelList[[j]] %*% tmp)
         }
+        for(j in 1:J)
+        {
+            dA.inr[, , j] <- (1/nSamp) * (dA.inr[, , j] - exp(lambdajVec[j]) * ikn[, , j] %*% tmp)
+        }
         
         ## For derivatives of A with respect to lambda_{li}
         for(k in 1:(L*m))
         {
-            Lindx <- getIndex(k, L, m)[1];
-            mindx <- getIndex(k, L, m)[2];
-            
-            trMat <- UVC[, , mindx] %*%
-                baseKernelList[[Lindx]] %*%
-                UVC[, , mindx] %*%
-                (bknCmb[, , mindx] - exp(-phi) * crossprod(t(sampleUMat[,mindx])));
+            l <- getIndex(k, L, m)[1];
+            i <- getIndex(k, L, m)[2];
+            trMat <- UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
+                (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i]));
             trVal <- tr(trMat);
-            DevALambdaliList[[k]] <- (1/nSamp) *
-                (DevALambdaliList[[k]] -
-                 (exp(lambdaliMat[Lindx, mindx]) / 2) * trVal * YVC);
+            tmp <- exp(lambdaliMat[l, i]) / 2 * trVal
+            DevALambdaliList[[k]] <- (1/nSamp) * (DevALambdaliList[[k]] - tmp * YCV)
         }
-        
-        
+        ret <- mapply(function(l, i)
+        {
+            trMat <- UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
+                (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i]))
+            exp(lambdaliMat[l, i]) / 2 * tr(trMat)
+        }, rep(1:L, t=m), rep(1:m, e=L))
+        dim(ret) <- c(1, 1, L, m)
+        dA.bas <- (1/nSamp) * (dA.bas - kronecker(ret, YCV))
+
         ## For derivative of phi
-        DevAPhi <- (1/nSamp) * (DevAPhi - (1/2) * (m * n - exp(-phi) * trPhi) * YVC);
+        DevAPhi <- (1/nSamp) * (DevAPhi - (1/2) * (m * n - exp(-phi) * trPhi) * YCV);
+        dA.phi <- (1/nSamp) * (dA.phi - (1/2) * (m * n - exp(-phi) * trPhi) * YCV)
     }
+
+    derivLoss <- sapply(c(DevALambdajList, DevALambdaliList, list(phi=DevAPhi)), function(d)
+    {
+        t(y) %*% (d %*% Amat + Amat %*% d) %*% y
+    })
+
+    dvt <- list()
+    dvt$inr <- apply(dA.inr, 3, function(d)
+    {
+        t(y) %*% (d %*% Amat + Amat %*% d) %*% y
+    })
+    dvt$bas <- apply(dA.bas, 3:4, function(d)
+    {
+        t(y) %*% (d %*% Amat + Amat %*% d) %*% y
+    })
+    dvt$phi <- t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y
+
+    list(Amat=Amat, dvt=dvt, derivLoss=derivLoss)
+}
+
+## Function for gradient descent
+## niter is the maximum iterations for gradient descent
+## lr is a fixed learning rate used in the option specified and the first iteration
+## in the option of B-Bmethod
+GradDesc <- function
+(
+    lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName,
+    trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5)
+{
+    derivList <- CalcDerivLoss(
+        lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp);
+
+    y <- trait;
+    n <- length(trait)                  # sample size
+    L <- NROW(lambdaliMat)              # number of base kernels
+    m <- NCOL(lambdaliMat)              # number of hidden units (U)
+    J <- NROW(lambdajVec)               # number of inner kernels
+
+    ## Gradients
+    lossDeriv <- derivList$derivLoss;
+    ldv <- list(derivList$dvt)
+  
+    ## Combine all parameters in a vector
+    paraVec <- c(c(lambdajVec), c(t(lambdaliMat)), phi);
     
-    returnList <- list(L = L, m = m, n = n, J = J,
-                       innerKernelList = innerKernelList,
-                       innerKernelCombInvList = innerKernelCombInvList,
-                       Amat = Amat, DevALambdajList = DevALambdajList,
-                       DevALambdaliList = DevALambdaliList, DevAPhi = DevAPhi);
+    ## Matrix used to store the iteration result
+    paraMat <- matrix(0, nrow = niter, ncol = length(paraVec));
+    paraMat[1,] <- paraVec;
+  
+    for(i in 2:niter)
+    {
+        cat("Iteration", i, "\n");
+        if(i == 2)
+        {
+            lr <- getLearningRate(lr = lr, type = "Specified");
+            paraMat[i,] <- paraMat[i-1,] - lr * lossDeriv;
+            devFxn <- lossDeriv;
+        }
+        else
+        {
+            xn <- paraMat[i-1, ]; xn1 <- paraMat[i-2, ];
+            devFxn1 <- devFxn;
+            
+            lambdajVecIter <- paraMat[i-1, 1:J];
+            lambdaliMatIter <- matrix(paraMat[i-1, (J+1):(J+L*m)], nrow = L, byrow = T);
+            phiIter <- paraMat[i-1, length(paraVec)];
+      
+            derivListIter <- CalcDerivLoss(
+                lambdajVec = lambdajVecIter, lambdaliMat = lambdaliMatIter, phi = phiIter,
+                baseKernelList = baseKernelList, innerKernelName = innerKernelName,
+                trait = trait, nSamp = nSamp);
+            lossDerivInter <- derivListIter$derivLoss;
+            devFxn <- lossDerivInter;
+      
+            lr <- getLearningRate(xn, xn1, devFxn, devFxn1, type = "B-BMethod");
+            
+            paraMat[i,] <- paraMat[i-1,] - lr * lossDerivInter;
+        }
+    
+        cat("Learning Rate = ", lr, "\n");
+        cat("lambdaj = [", paraMat[i, 1:J], "], lambdali = [", paraMat[i, (J+1):(J+L*m)],
+            "],phi = ", paraMat[i, length(paraVec)], "\n");
+    
+        if(sum(abs(paraMat[i,] - paraMat[i-1,])) < tol)
+        {break;}
+    }
+  
+    gradDescList <- list(
+        lambdajVec = paraMat[i, 1:J],
+        lambdaliMat = matrix(paraMat[i, (J+1):(J+L*m)], nrow = L, byrow = T),
+        phi = paraMat[i, length(paraVec)])
+    returnList <- c(derivList, gradDescList)
     return(returnList)
-    
-}
-
-
-# Function for calculating derivatives with respect to the loss function
-CalcDerivLoss <- function(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3)
-{
-  matDerivList <- CalcDerivMultiKernel(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp);
-  L <- matDerivList$L; J <- matDerivList$J;
-  m <- matDerivList$m; n <- matDerivList$n;
-  y <- trait;
-  
-  Amat <- matDerivList$Amat;
-  DevALambdajList <- matDerivList$DevALambdajList;
-  DevALambdaliList <- matDerivList$DevALambdaliList;
-  DevAPhi <- matDerivList$DevAPhi;
-  
-  derivLoss <- rep(0, 1 + J + L * m);
-  
-  for(i in 1:length(derivLoss))
-  {
-    if(i <= J)
-    {
-      tempMat <- DevALambdajList[[i]] %*% Amat + Amat %*% DevALambdajList[[i]];
-      derivLoss[i] <- t(y) %*% tempMat %*% y;
-    }else
-      if(i <= J + L*m)
-      {
-        k <- i - J;
-        tempMat <- DevALambdaliList[[k]] %*% Amat + Amat %*% DevALambdaliList[[k]];
-        derivLoss[i] <- t(y) %*% tempMat %*% y;
-      }else
-      {
-        tempMat <- DevAPhi %*% Amat + Amat %*% DevAPhi;
-        derivLoss[i] <- t(y) %*% tempMat %*% y;
-      }
-  }
-  
-  lossDerivList <- list(derivLoss = derivLoss);
-  returnList <- c(matDerivList, lossDerivList);
-  return(returnList)
-}
-
-
-# Function for gradient descent
-# niter is the maximum iterations for gradient descent
-# lr is a fixed learning rate used in the option specified and the first iteration in the option of B-Bmethod
-GradDesc <- function(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5)
-{
-  derivList <- CalcDerivLoss(lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp);
-  L <- derivList$L; J <- derivList$J;
-  m <- derivList$m; n <- derivList$n;
-  y <- trait;
-  
-  # Gradients
-  lossDeriv <- derivList$derivLoss;
-  
-  # Combine all parameters in a vector
-  paraVec <- c(c(lambdajVec), c(t(lambdaliMat)), phi);
-  
-  # Matrix used to store the iteration result
-  paraMat <- matrix(0, nrow = niter, ncol = length(paraVec));
-  paraMat[1,] <- paraVec;
-  
-  for(i in 2:niter)
-  {
-    cat("Iteration", i, "\n");
-    if(i == 2)
-    {
-      lr <- getLearningRate(lr = lr, type = "Specified");
-      paraMat[i,] <- paraMat[i-1,] - lr * lossDeriv;
-      devFxn <- lossDeriv;
-    }else
-    {
-      xn <- paraMat[i-1,]; xn1 <- paraMat[i-2,];
-      devFxn1 <- devFxn;
-      
-      lambdajVecIter <- paraMat[i-1, 1:J];
-      lambdaliMatIter <- matrix(paraMat[i-1, (J+1):(J+L*m)], nrow = L, byrow = T);
-      phiIter <- paraMat[i-1, length(paraVec)];
-      
-      derivListIter <- CalcDerivLoss(lambdajVec = lambdajVecIter, lambdaliMat = lambdaliMatIter, phi = phiIter,
-                                     baseKernelList = baseKernelList, innerKernelName = innerKernelName, trait = trait, nSamp = nSamp);
-      lossDerivInter <- derivListIter$derivLoss;
-      devFxn <- lossDerivInter;
-      
-      lr <- getLearningRate(xn, xn1, devFxn, devFxn1, type = "B-BMethod");
-      
-      paraMat[i,] <- paraMat[i-1,] - lr * lossDerivInter;
-    }
-    
-    cat("Learning Rate = ", lr, "\n");
-    cat("lambdaj = [", paraMat[i, 1:J], "], lambdali = [", paraMat[i, (J+1):(J+L*m)], "], phi = ", paraMat[i, length(paraVec)], "\n");
-    
-    if(sum(abs(paraMat[i,] - paraMat[i-1,])) < tol)
-    {break;}
-  }
-  
-  gradDescList <- list(lambdajVec = paraMat[i, 1:J], lambdaliMat = matrix(paraMat[i, (J+1):(J+L*m)], nrow = L, byrow = T), phi = paraMat[i, length(paraVec)]);
-  returnList <- c(derivList, gradDescList);
-  return(returnList)
 }
 
 
