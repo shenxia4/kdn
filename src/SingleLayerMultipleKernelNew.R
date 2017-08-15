@@ -1,47 +1,18 @@
 ## source("HelperFunctions.R")
 ## source("KernelPool.R")
 
-## Function that calculate the combination of kernel matrices
-## HUid is the index for hidden units
-CalcBaseKernelComb <- function(lambdaliMat, baseKernelList, HUid)
-{
-    n <- dim(baseKernelList[[1]])[1]; # number of individuals
-    L <- dim(lambdaliMat)[1];         # number of base kernel matrices
-    
-    IdMat <- diag(rep(1,n));
-    
-    ResultMatList <- mapply(FUN = '*', baseKernelList, exp(lambdaliMat[, HUid]), SIMPLIFY = FALSE);
-    ResultMat <- Reduce(f = '+', ResultMatList) + IdMat;
-    
-    return(ResultMat)
-}
-
-
-## Function that calculate the combination of kernel matrices in the inner layer
-CalcInnerKernelComb <- function(lambdajVec, innerKernelList)
-{
-    n <- dim(innerKernelList[[1]])[1];  # number of individuals;
-    J <- length(lambdajVec);   # number of inner layer kernel matrices
-    
-    IdMat <- diag(rep(1,n));
-    
-    ResultMatList <- mapply(FUN = '*', innerKernelList, exp(lambdajVec), SIMPLIFY = FALSE);
-    ResultMat <- Reduce(f = '+', ResultMatList) + IdMat
-    
-    return(ResultMat)
-}
-
-
-# Function used to calculate necessary derivatives for gradient descent algorithm
-# lambdajVec is the initial vector for the variance components for final prediction;
-# lambdaliMat is an L by m matrix containing the initial values for the varaince component for the single layer;
-# L is the number of base kernel matrices;
-# J is the number of inner layer kernel matrices;
-# m is the number of hidden units;
-# trait is the phenotype vector;
-# baseKernelList is a matrix list containing the L base kernel matrices;
-# innerKernelName list the name of all the kernels to be used in the inner layer;
-# baseKernelList can have more than L elements and innerKernelName can have more than J elements. If so, the first L and J elements will be used;
+## Function used to calculate necessary derivatives for gradient descent algorithm
+## lambdajVec is the initial vector for the variance components for final prediction;
+## lambdaliMat is an L by m matrix containing the initial values for the varaince component for the
+## single layer;
+## L is the number of base kernel matrices;
+## J is the number of inner layer kernel matrices;
+## m is the number of hidden units;
+## trait is the phenotype vector;
+## baseKernelList is a matrix list containing the L base kernel matrices;
+## innerKernelName list the name of all the kernels to be used in the inner layer;
+## baseKernelList can have more than L elements and innerKernelName can have more than J elements.
+## If so, the first L and J elements will be used;
 CalcDerivLoss <- function
 (
     lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp = 1e3)
@@ -85,8 +56,6 @@ CalcDerivLoss <- function
         trPhi <- sum(UKV(UMat, UCV))
         
         ## Obtain the inner layer kernel matrices
-        ## for (j in 1:J)
-        ##     innerKernelList[[j]] <- findKernel(innerKernelName[j], geno = UMat);
         innerKernelList <- lapply(innerKernelName, findKernel, geno=UMat)
         ikn <- do.call(cbind, lapply(c(innerKernelList, list(diag(n))), as.vector))
         dim(ikn) <- c(n, n, (J + 1))
@@ -172,12 +141,10 @@ GradDesc <- function
     J <- NROW(lambdajVec)               # number of inner kernels
 
     ## Initial Gradients
-    lossDeriv <- derivList$derivLoss;
     ldv <- list()
     ldv[[2]] <- derivList$dvt
   
     ## Initial parameters in a vector
-    paraVec <- c(c(lambdajVec), c(t(lambdaliMat)), phi)
     lpr <- list()
     lpr[[1]] <- list(inr=lambdajVec, bas=lambdaliMat, phi=phi)
 
@@ -185,57 +152,36 @@ GradDesc <- function
     lr <- getLearningRate(lr=lr, type = "Specified")
     
     ## Matrix used to store the iteration result
-    paraMat <- matrix(0, nrow=niter, ncol=length(paraVec))
-    paraMat[1,] <- paraVec;
     for(i in 2:niter)
     {
         cat("Iteration", i, "\n");
         if(i == 2)
         {
             lr <- getLearningRate(lr = lr, type = "Specified");
-            paraMat[i, ] <- paraMat[i-1, ] - lr * lossDeriv;
             lpr[[i]] <- mapply(function(p, d) p - lr * d, lpr[[1]], ldv[[i]])
-            devFxn <- lossDeriv;
         }
         else
         {
-            xn <- paraMat[i-1, ]; xn1 <- paraMat[i-2, ];
-            devFxn1 <- devFxn;
-            
             derivListIter <- CalcDerivLoss(
                 lambdajVec = lpr[[i-1]]$inr,
                 lambdaliMat = lpr[[i-1]]$bas,
                 phi = lpr[[i-1]]$phi,
                 baseKernelList = baseKernelList, innerKernelName = innerKernelName,
                 trait = trait, nSamp = nSamp);
-
-            lossDerivInter <- derivListIter$derivLoss;
-            devFxn <- lossDerivInter;
-      
-            lr <- getLearningRate(xn, xn1, devFxn, devFxn1, type = "B-BMethod")
             ldv[[i]] <- derivListIter$dvt
             lr1 <- getLearningRate(
                 unlist(lpr[[i-1]]), unlist(lpr[[i-2]]),
                 unlist(ldv[[i]]), unlist(ldv[[i-1]]), type = "B-BMethod")
-            paraMat[i,] <- paraMat[i-1,] - lr * lossDerivInter;
-
-            lpr[[i]] <- mapply(function(p, d) p - lr * d, lpr[[i-1]], ldv[[i]])
+            lpr[[i]] <- mapply(function(p, d) p - lr1 * d, lpr[[i-1]], ldv[[i]])
         }
         
-        cat("LR = ", lr, "\n");
-        cat("lmd.j=[", paraMat[i, 1:J], "], lmd.li=[", paraMat[i, (J+1):(J+L*m)],
-            "], phi=", paraMat[i, length(paraVec)], "\n");
-
-        if(sum(abs(paraMat[i,] - paraMat[i-1,])) < tol)
-        {break;}
+        cat("LR = ", lr, "\n")
+        cat("lmd.j=[", lpr[[i]]$inr, "], lmd.li=[", lpr[[i]]$bas, "], phi=", lpr[[i]]$phi, "\n")
+        if(sum(abs(unlist(lpr[[i-1]]) - unlist(lpr[[i]]))) < tol)
+            break
     }
 
-    print(all.equal(lpr[[i]]$inr, paraMat[i, 1:J]))
-    print(all.equal(lpr[[i]]$bas, matrix(paraMat[i, (J+1):(J+L*m)], nrow = L, byrow = T)))
-    print(all.equal(lpr[[i]]$phi, paraMat[i, length(paraVec)]))
-    gdl <- list(lambdajVec = lpr[[i]]$inr, lambdaliMat = lpr[[i]]$bas, phi = lpr[[i]]$phi)
-    returnList <- c(derivList, gdl)
-    return(returnList)
+    list(lambdajVec = lpr[[i]]$inr, lambdaliMat = lpr[[i]]$bas, phi = lpr[[i]]$phi)
 }
 
 
