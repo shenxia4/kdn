@@ -31,12 +31,12 @@ CalcDerivLoss <- function
     DevALambdajList <- replicate(J, matrix(.0, n, n), simplify=F)
     DevALambdaliList <- replicate(L * m, matrix(.0, n, n), simplify=F)
     UMat <- matrix(0, nrow = n, ncol = m);
-    
+
     ## Choose the first L and first J kernels in baseKernelList and innerKernelList respectively
     baseKernelList <- baseKernelList[1:L];
     innerKernelList <- list();
     innerKernelName <- innerKernelName[1:J];
-    
+
     ## Calculate the covariance matrices for the m hidden units (DOES NOT DEPEND ON U MATRIX!)
     bkn <- do.call(cbind, lapply(c(baseKernelList, list(diag(n))), as.vector))
     dim(bkn) <- c(n, n, (L + 1))
@@ -44,11 +44,16 @@ CalcDerivLoss <- function
     ## hidden U's variance covariance
     UCV <- apply(bknCmb, 3, FastInverseMatrix)
     dim(UCV) <- dim(bknCmb)
-    
+
     ## Do sampling here to calculate expectations
     dA.inr <- array(0, c(n, n, length(lambdajVec)))
     dA.bas <- array(0, c(n, n, dim(lambdaliMat)))
     dA.phi <- matrix(0, n, n)
+
+    ## \PDV{A}{\lambda_j} Y
+    dA.inr.y <- array(0, c(n, J))
+    dA.bas.y <- array(0, c(n, L, m))
+    
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
@@ -64,40 +69,46 @@ CalcDerivLoss <- function
         YCV <- FastInverseMatrix(KW(ikn, rbind(as.matrix(exp(lambdajVec)), 1)))
 
         ## For matrix A
-        Amat <- (1/nSamp) * (Amat + YCV);
+        Amat <- Amat + YCV
         
         ## For derivatives of A with respect to lambda_j
-        tmp <- YCV %*% YCV
-        for(j in 1:J)
+        .yy <- YCV %*% YCV
+        dA.inr <- dA.inr + vapply(1:J, function(j)
         {
-            dA.inr[, , j] <- (1/nSamp) * (dA.inr[, , j] - exp(lambdajVec[j]) * ikn[, , j] %*% tmp)
-        }
-        
+            -exp(lambdajVec[j]) * ikn[, , j] %*% .yy
+        }, YCV)
+        dA.inr.y <- dA.inr.y + vapply(1:J, function(j)
+        {
+            ## 1 by N
+            -exp(lambdajVec[j]) * crossprod(y, YCV) %*% ikn[, , j] %*% YCV
+        }, y) ## -> N by J
+
         ## For derivatives of A with respect to lambda_{li}
-        rt0 <- mapply(function(l, i)
-        {
-            . <- tr(UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
-                    (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i])))
-            exp(lambdaliMat[l, i]) / 2 * .
-        }, rep(1:L, t=m), rep(1:m, e=L))
         ret <- mapply(function(l, i)
         {
             . <- UCV[, , i] %*% UMat[, i]
-            . <- exp(-phi) * crossprod(., bkn[, , l] %*% .)
-            . <- sum(UCV[, , i] * bkn[, , l]) - .
-            exp(lambdaliMat[l, i]) / 2 * .
+            . <- sum(UCV[, , i] * bkn[, , l]) - exp(-phi) * crossprod(., bkn[, , l] %*% .)
+            -exp(lambdaliMat[l, i]) / 2 * .
         }, rep(1:L, t=m), rep(1:m, e=L))
-        print(all.equal(rt0, ret))
-
         dim(ret) <- c(1, 1, L, m)
-        dA.bas <- (1/nSamp) * (dA.bas - kronecker(ret, YCV))
+        dA.bas <- dA.bas + kronecker(ret, YCV)
 
+        dim(ret) <- c(1, L, m)
+        dA.bas.y <- dA.bas.y + kronecker(ret, drop(crossprod(y, YCV)))
+        
         ## For derivative of phi
-        dA.phi <- (1/nSamp) * (dA.phi - (1/2) * (m * n - exp(-phi) * trPhi) * YCV)
+        dA.phi <- dA.phi - .5 * YCV * (m * n - exp(-phi) * trPhi)
     }
+    Amat <- Amat / nSamp
+    dA.inr <- dA.inr / nSamp
+    dA.bas <- dA.bas / nSamp
+    dA.phi <- dA.phi / nSamp
+    dA.inr.y <- dA.inr.y / nSamp
+    dA.inr.2 <- crossprod(y, Amat %*% dA.inr.y) * 2
+    dim(dA.bas.y) <- c(n, L * m)
+    dA.bas.2 <- crossprod(y, Amat %*% dA.bas.y) * 2
 
     dvt <- list()
-    t0 <- proc.time()
     dvt$inr <- apply(dA.inr, 3, function(d)
     {
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
@@ -107,9 +118,6 @@ CalcDerivLoss <- function
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
     })
     dvt$phi <- drop(t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y)
-    t1 <- proc.time()
-    print(t1 - t0)
-
     list(Amat=Amat, dvt=dvt)
 }
 
