@@ -42,7 +42,7 @@ CalcDerivLoss <- function
     dim(bkn) <- c(n, n, (L + 1))
     bknCmb <- KW(bkn, rbind(exp(lambdaliMat), 1))
     ## hidden U's variance covariance
-    UCV <- apply(bknCmb, 3, FastInverseMatrix) 
+    UCV <- apply(bknCmb, 3, FastInverseMatrix)
     dim(UCV) <- dim(bknCmb)
     
     ## Do sampling here to calculate expectations
@@ -68,47 +68,36 @@ CalcDerivLoss <- function
         
         ## For derivatives of A with respect to lambda_j
         tmp <- YCV %*% YCV
-        for (j in 1:J)
-        {
-            DevALambdajList[[j]] <- (1/nSamp) * (
-                DevALambdajList[[j]] - exp(lambdajVec[j]) * innerKernelList[[j]] %*% tmp)
-        }
         for(j in 1:J)
         {
             dA.inr[, , j] <- (1/nSamp) * (dA.inr[, , j] - exp(lambdajVec[j]) * ikn[, , j] %*% tmp)
         }
         
         ## For derivatives of A with respect to lambda_{li}
-        for(k in 1:(L*m))
+        rt0 <- mapply(function(l, i)
         {
-            l <- getIndex(k, L, m)[1];
-            i <- getIndex(k, L, m)[2];
-            trMat <- UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
-                (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i]));
-            trVal <- tr(trMat);
-            tmp <- exp(lambdaliMat[l, i]) / 2 * trVal
-            DevALambdaliList[[k]] <- (1/nSamp) * (DevALambdaliList[[k]] - tmp * YCV)
-        }
+            . <- tr(UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
+                    (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i])))
+            exp(lambdaliMat[l, i]) / 2 * .
+        }, rep(1:L, t=m), rep(1:m, e=L))
         ret <- mapply(function(l, i)
         {
-            trMat <- UCV[, , i] %*% bkn[, , l] %*% UCV[, , i] %*%
-                (bknCmb[, , i] - exp(-phi) * tcrossprod(UMat[,i]))
-            exp(lambdaliMat[l, i]) / 2 * tr(trMat)
+            . <- UCV[, , i] %*% UMat[, i]
+            . <- exp(-phi) * crossprod(., bkn[, , l] %*% .)
+            . <- sum(UCV[, , i] * bkn[, , l]) - .
+            exp(lambdaliMat[l, i]) / 2 * .
         }, rep(1:L, t=m), rep(1:m, e=L))
+        print(all.equal(rt0, ret))
+
         dim(ret) <- c(1, 1, L, m)
         dA.bas <- (1/nSamp) * (dA.bas - kronecker(ret, YCV))
 
         ## For derivative of phi
-        DevAPhi <- (1/nSamp) * (DevAPhi - (1/2) * (m * n - exp(-phi) * trPhi) * YCV);
         dA.phi <- (1/nSamp) * (dA.phi - (1/2) * (m * n - exp(-phi) * trPhi) * YCV)
     }
 
-    derivLoss <- sapply(c(DevALambdajList, DevALambdaliList, list(phi=DevAPhi)), function(d)
-    {
-        t(y) %*% (d %*% Amat + Amat %*% d) %*% y
-    })
-
     dvt <- list()
+    t0 <- proc.time()
     dvt$inr <- apply(dA.inr, 3, function(d)
     {
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
@@ -118,8 +107,10 @@ CalcDerivLoss <- function
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
     })
     dvt$phi <- drop(t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y)
+    t1 <- proc.time()
+    print(t1 - t0)
 
-    list(Amat=Amat, dvt=dvt, derivLoss=derivLoss)
+    list(Amat=Amat, dvt=dvt)
 }
 
 ## Function for gradient descent
