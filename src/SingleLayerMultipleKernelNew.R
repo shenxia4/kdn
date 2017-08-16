@@ -19,18 +19,14 @@ CalcDerivLoss <- function
 {
     y <- trait
 
-    n <- NROW(y)                        # sample size
+    N <- NROW(y)                        # sample size
     L <- nrow(lambdaliMat)              # number of base kernels
     m <- ncol(lambdaliMat)              # number of hidden units (U)
     J <- NROW(lambdajVec)               # number of inner kernels
 
     ## Initialization variables
-    Amat <- DevAPhi <- matrix(0, nrow = n, ncol = n); # results for matrix A
-
-    ## results for derivative of A and A^2 wrt lambda's
-    DevALambdajList <- replicate(J, matrix(.0, n, n), simplify=F)
-    DevALambdaliList <- replicate(L * m, matrix(.0, n, n), simplify=F)
-    UMat <- matrix(0, nrow = n, ncol = m);
+    Amat <- matrix(0, N, N);            # A matrix
+    UMat <- matrix(0, N, m);            # U matrix (hidden units)
 
     ## Choose the first L and first J kernels in baseKernelList and innerKernelList respectively
     baseKernelList <- baseKernelList[1:L];
@@ -38,40 +34,45 @@ CalcDerivLoss <- function
     innerKernelName <- innerKernelName[1:J];
 
     ## Calculate the covariance matrices for the m hidden units (DOES NOT DEPEND ON U MATRIX!)
-    bkn <- do.call(cbind, lapply(c(baseKernelList, list(diag(n))), as.vector))
-    dim(bkn) <- c(n, n, (L + 1))
+    bkn <- do.call(cbind, lapply(c(baseKernelList, list(diag(N))), as.vector))
+    dim(bkn) <- c(N, N, (L + 1))
     bknCmb <- KW(bkn, rbind(exp(lambdaliMat), 1))
     ## hidden U's variance covariance
     UCV <- apply(bknCmb, 3, FastInverseMatrix)
     dim(UCV) <- dim(bknCmb)
 
-    ## Do sampling here to calculate expectations
-    dA.inr <- array(0, c(n, n, length(lambdajVec)))
-    dA.bas <- array(0, c(n, n, dim(lambdaliMat)))
-    dA.phi <- matrix(0, n, n)
+    ## gradient of A wrt weights
+    dA.inr <- array(0, c(N, N, length(lambdajVec)))
+    dA.bas <- array(0, c(N, N, dim(lambdaliMat)))
+    dA.phi <- matrix(0, N, N)
 
-    ## \PDV{A}{\lambda_j} Y
-    dA.inr.y <- array(0, c(n, J))
-    dA.bas.y <- array(0, c(n, L, m))
+    ## y' \PDV{A}{\lambda_j }, for all j,   -- gradient of A wrt. inner weights times y
+    dA.inr.y <- array(0, c(N, J))
+
+    ## \PDV{A}{\lambda_li}y, for all (l, i) -- gradient of A wrt. basic weights times y
+    dA.bas.y <- array(0, c(N, L, m))
+
+    ## y' \PDV{A}{\phi}, y' time the derivative of A wrt. phi
+    dA.phi.y <- 0
     
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
-        UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, n), v))
-        trPhi <- sum(UKV(UMat, UCV))
+        UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, N), v))
         
         ## Obtain the inner layer kernel matrices
         innerKernelList <- lapply(innerKernelName, findKernel, geno=UMat)
-        ikn <- do.call(cbind, lapply(c(innerKernelList, list(diag(n))), as.vector))
-        dim(ikn) <- c(n, n, (J + 1))
-
-        ## inversed re-combination of inner kernels serves as predicted VCV of Y
+        ikn <- do.call(cbind, lapply(c(innerKernelList, list(diag(N))), as.vector))
+        dim(ikn) <- c(N, N, (J + 1))
+        
+        ## inversed inner kernels combination serves as predicted VCV of Y,
+        ## which is also a sample of matrix A: YVC = A[s]
         YCV <- FastInverseMatrix(KW(ikn, rbind(as.matrix(exp(lambdajVec)), 1)))
 
-        ## For matrix A
+        ## accmulate matrix A
         Amat <- Amat + YCV
         
-        ## For derivatives of A with respect to lambda_j
+        ## For derivatives of A with respect to inner weights lambda_j
         .yy <- YCV %*% YCV
         dA.inr <- dA.inr + vapply(1:J, function(j)
         {
@@ -79,35 +80,48 @@ CalcDerivLoss <- function
         }, YCV)
         dA.inr.y <- dA.inr.y + vapply(1:J, function(j)
         {
-            ## 1 by N
+            ## \dev(A, lmd_j) y = A K_j A y = y' A K_j A for all j.
             -exp(lambdajVec[j]) * crossprod(y, YCV) %*% ikn[, , j] %*% YCV
-        }, y) ## -> N by J
+        }, y)
 
-        ## For derivatives of A with respect to lambda_{li}
+        ## For derivatives of A with respect to basic weights lambda_{li}
         ret <- mapply(function(l, i)
         {
             . <- UCV[, , i] %*% UMat[, i]
-            . <- sum(UCV[, , i] * bkn[, , l]) - exp(-phi) * crossprod(., bkn[, , l] %*% .)
-            -exp(lambdaliMat[l, i]) / 2 * .
+            . <- - exp(-phi) * crossprod(., bkn[, , l] %*% .)
+            . <- sum(UCV[, , i] * bkn[, , l]) + .
+            -.5 * exp(lambdaliMat[l, i]) * .
         }, rep(1:L, t=m), rep(1:m, e=L))
         dim(ret) <- c(1, 1, L, m)
         dA.bas <- dA.bas + kronecker(ret, YCV)
 
+        ## \dev(A, lmd_li)y = A [..] y = y' A [..] for all (l, i)
         dim(ret) <- c(1, L, m)
         dA.bas.y <- dA.bas.y + kronecker(ret, drop(crossprod(y, YCV)))
         
         ## For derivative of phi
-        dA.phi <- dA.phi - .5 * YCV * (m * n - exp(-phi) * trPhi)
+        . <- sum(sapply(1:m, function(i) crossprod(UMat[, i], UCV[, , i] %*% UMat[, i])))
+        dA.phi <- dA.phi - .5 * YCV * (m * N - exp(-phi) * .)
+        ## \dev(A, phi) y = A . y = (y' A)' . = A y .
+        dA.phi.y <- dA.phi.y + YCV %*% y * -.5 * (m * N - exp(-phi) * .)
     }
     Amat <- Amat / nSamp
     dA.inr <- dA.inr / nSamp
     dA.bas <- dA.bas / nSamp
     dA.phi <- dA.phi / nSamp
-    dA.inr.y <- dA.inr.y / nSamp
-    dA.inr.2 <- crossprod(y, Amat %*% dA.inr.y) * 2
-    dim(dA.bas.y) <- c(n, L * m)
-    dA.bas.2 <- crossprod(y, Amat %*% dA.bas.y) * 2
 
+    t1 <- proc.time()
+    dA.inr.y <- dA.inr.y / nSamp
+    dA.inr.2 <- drop(crossprod(y, Amat %*% dA.inr.y)) * 2
+
+    dA.bas.y <- dA.bas.y / nSamp
+    dim(dA.bas.y) <- c(N, L * m)       # flatten
+    dA.bas.2 <- crossprod(y, Amat %*% dA.bas.y) * 2
+    dim(dA.bas.2) <- c(L, m)           # reshape
+
+    dA.phi.y <- dA.phi.y / nSamp
+    dA.phi.y <- drop(crossprod(y, Amat) %*% dA.phi.y) * 2
+    t2 <- proc.time()
     dvt <- list()
     dvt$inr <- apply(dA.inr, 3, function(d)
     {
@@ -118,6 +132,10 @@ CalcDerivLoss <- function
         t(y) %*% (d %*% Amat + Amat %*% d) %*% y
     })
     dvt$phi <- drop(t(y) %*% (dA.phi %*% Amat + Amat %*% dA.phi) %*% y)
+    t3 <- proc.time()
+    print(t2-t1)
+    print(t3-t2)
+    
     list(Amat=Amat, dvt=dvt)
 }
 
@@ -134,7 +152,7 @@ GradDesc <- function
         lambdajVec, lambdaliMat, phi, baseKernelList, innerKernelName, trait, nSamp);
 
     y <- trait;
-    n <- length(trait)                  # sample size
+    N <- length(trait)                  # sample size
     L <- NROW(lambdaliMat)              # number of base kernels
     m <- NCOL(lambdaliMat)              # number of hidden units (U)
     J <- NROW(lambdajVec)               # number of inner kernels
