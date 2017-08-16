@@ -82,7 +82,7 @@ getPred <- function
     sigmaR, phi, order,                     # variables to generate trait
     fromBaseKernel, UserDef = NULL,         # variables to generate base kernel matrix list
     lambdajVec, lambdaliMat, varPhi,
-    innerKernelName, 
+    innerKernel, 
     nSamp = 1e3, niter = 100, tol = 1e-5)   # variables to assign initial values to the parameters
 {
     predErr <- rep(0, nS);
@@ -130,7 +130,7 @@ getPred <- function
         ## Prediction error calculated here
         predList <- CalcPredErr(
             lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, phi = varPhi, baseKernelList = KList, 
-            innerKernelName = innerKernelName, trait = trait, nSamp = nSamp, niter = niter, tol = tol);
+            innerKernel = innerKernel, trait = trait, nSamp = nSamp, niter = niter, tol = tol);
         predVal.BLUPK <- getBPLMM(y = trait, D = sigmaR * traitSigma, Z = IdMat, R = phi * IdMat);
         predVal.BLUPI <- getBPLMM(y = trait, D = sigmaR * IdMat, Z = IdMat, R = phi * IdMat);
         

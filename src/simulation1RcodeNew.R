@@ -27,11 +27,11 @@ main <- function()
 
     ## Parameters for gradient descent algorithm
     fromBaseKernel <- c("CAR", "identity")
-    innerKernelName <- c("identity", "product")
+    innerKernel <- c("identity", "product")
     lambdajVec <- c(1,1)
     lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T)
     nSamp <- 10
-    niter <- 10
+    niter <- 50
     tol <- 1e-5
 
     time1 <- proc.time()
@@ -41,7 +41,7 @@ main <- function()
         sigmaR = sigmaR, phi = phi, order = order,
         fromBaseKernel = fromBaseKernel, UserDef = NULL, 
         lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, varPhi = 1,
-        innerKernelName = innerKernelName,
+        innerKernel = innerKernel,
         nSamp = nSamp, niter = niter, tol = tol)
     proc.time()-time1
 
