@@ -128,9 +128,15 @@ getPred <- function
         trait <- traitList$trait;
         
         ## Prediction error calculated here
+        ctx <- list(
+            y=trait,
+            nnt=list(
+                bas=list(knl=KList, out=3),
+                inr=list(knl=innerKernel)))
         predList <- CalcPredErr(
             lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, phi = varPhi, baseKernelList = KList, 
-            innerKernel = innerKernel, trait = trait, nSamp = nSamp, niter = niter, tol = tol);
+            innerKernel = innerKernel, trait = trait, nSamp = nSamp, niter = niter, tol = tol,
+            ctx=ctx);
         predVal.BLUPK <- getBPLMM(y = trait, D = sigmaR * traitSigma, Z = IdMat, R = phi * IdMat);
         predVal.BLUPI <- getBPLMM(y = trait, D = sigmaR * IdMat, Z = IdMat, R = phi * IdMat);
         

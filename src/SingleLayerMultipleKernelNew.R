@@ -185,14 +185,26 @@ GradDesc <- function(ctx, nSamp=1e3, max.itr=100, lr=1e-3, tol=1e-5, min.err=1e-
 CalcPredErr <- function
 (
     lambdajVec, lambdaliMat, phi, baseKernelList, innerKernel,
-    trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5)
+    trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5, ctx=NULL)
 {
-    ## gradient decent learning
+    ## initialize gradient decent context
+    nnt <- ctx$nnt
+    knl <- lapply(nnt, `[[`, 'knl')
+    lmd <- lapply(nnt, function(.)
+    {
+        d.i <- length(.$knl)
+        d.o <- .$out
+        if(is.null(d.o))
+            rep(1, d.i)
+        else
+            matrix(1:d.o - 1, d.i, d.o, T)
+    })
+    
     ctx <- within(list(),
     {
-        y <- trait
-        knl <- list(inr=innerKernel, bas=baseKernelList)
-        par <- list(inr=lambdajVec, bas=lambdaliMat, phi=phi)
+        y <- ctx$y
+        par <- c(lmd, list(phi=1))
+        knl <- knl
     })
     ret <- GradDesc(ctx, nSamp=nSamp, max.itr=niter, lr=lr, min.err=tol);
 
