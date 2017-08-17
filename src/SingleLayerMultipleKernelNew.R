@@ -10,8 +10,9 @@
 ## knl: kernels
 ##    bas: basic kernels (matrices)
 ##    inr: inner kernels (tokens)
-CalcDerivLoss <- function(par, knl, y, nSamp = 1e3)
+CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 {
+    
     ## dimensions
     N <- NROW(y)                        # sample size
     L <- nrow(par$bas)                  # number of base kernels
@@ -108,6 +109,10 @@ CalcDerivLoss <- function(par, knl, y, nSamp = 1e3)
         inr <- drop(crossprod(y, Amat %*% dA.inr.y)) * 2
     })
     
+    ## make sure the gradient is in the same order as the parameters 
+    dvt <- dvt[names(par)]
+
+    ## return
     list(Amat=Amat, dvt=dvt)
 }
 
@@ -121,71 +126,70 @@ CalcDerivLoss <- function(par, knl, y, nSamp = 1e3)
 ## max.itr : maximum number of iterations;
 ## lr      : is the initial learning rate;
 ## min.err : minimum training error to continue;
-## nSamp   : number of sampling to do when evaluating gradient
-GradDesc <- function(ctx, nSamp=1e3, max.itr=100, lr=1e-3, tol=1e-5, min.err=1e-3)
+GradDesc <- function(ctx, max.itr=100, lr=1e-3, max.lr=1e-1, tol=1e-5, min.err=1e-3, ...)
 {
+    ## contex: hst*, par*, y, knl
     for(. in names(ctx)) assign(., ctx[[.]])
-    ## Matrix used to store the iteration result
-    for(i in 1:max.itr)
+
+    ## initial epoch, with only the initial parameters
+    if(!exists('hst'))
+        hst <- list()
+
+    par <- ctx$par
+    ## training
+    for(i in (1 + length(hst)) : (length(hst) + max.itr))
     {
-        if(i == 1)                      # Initial: 1st iteration
-        {
-            lpr <- list()               # parameters
-            ldv <- list()               # gradients
-            lpr[[i]] <- par
-        }
+        ## re-calculate gradient and other contextual variables
+        ret <- CalcDerivLoss(par, knl, y, ...)
+        dvt <- ret$dvt                        # gradient
+        mdv <- max(abs(unlist(dvt)))          # gradient maximum
+        err <- with(ret, y %*% Amat %*% y)    # pred-error
 
-        ## calculate gradient and other context variables
-        par <- lpr[[i]]
-        ret <- with(par, CalcDerivLoss(par, knl, y, nSamp))
-        dvt <- ldv[[i]] <- ret$dvt
-
-        ## update parameters
+        ## learning rate
         if(i < 3)                       # Initial learning rate
             lr <- getLearningRate(lr=lr, type = "Specified")
         else                            # dynamic learning rate
         {
             p.i <- unlist(par)
-            p.1 <- unlist(lpr[[i-1]])
+            p.1 <- unlist(hst[[i-1]]$par)
             d.i <- unlist(dvt)
-            d.1 <- unlist(ldv[[i-1]])
-            ## lr <- getLearningRate(p.i, p.1, d.i, d.1, type="B-BMethod")
+            d.1 <- unlist(hst[[i-1]]$dvt)
+            lr <- getLearningRate(p.i, p.1, d.i, d.1, type="B-BMethod")
+            lr <- min(lr, max.lr)
         }
-        ## update now
-        new <- lpr[[i+1]] <- within(par,
+        ## parameter differences, and its summation
+        dff <- lapply(dvt, `*`, lr)
+        sdf <- sum(abs(unlist(dff)))
+
+        ## gather report
+        rpt <- list(ep=i, err=err, lr=lr, mdv=mdv, sdf=sdf)
+        cat(do.call(sprintf, c("%04d: %.1e %.1e %.1e %.1e\n", rpt)))
+
+        ## record history
+        hst[[i]] <- c(rpt, list(par=par, dvt=dvt))
+        names(hst)[i] <- sprintf("E%04d", i)
+
+        if(sdf < tol || err < min.err)
+            break
+
+        ## get new parameters
+        par <- mapply(`-`, par, dff)
+
+        ## forget early history of parameters and gradients
+        if(i > 2)
         {
-            phi <- phi - lr * ret$dvt$phi
-            bas <- bas - lr * ret$dvt$bas
-            inr <- inr - lr * ret$dvt$inr
-        })
-
-        ## statistic tracks
-        ## prediction error by previous parameters (i th.)
-        err <- t(y) %*% ret$Amat %*% y
-
-        ## difference
-        dff <- sum(abs(unlist(new) - unlist(par)))
-
-        ## maximum gradient
-        mdv <- max(abs(unlist(dvt)))
-
-        rpt <- sprintf("%04d: %.1e %.1e %.1e %.1e", i, err, lr, mdv, dff)
-        cat(rpt, '\n', sep='')
-
-        if(dff < tol)
-            break
-        if(err < min.err)
-            break
+            hst[[i-2]]$par <- NULL
+            hst[[i-2]]$dvt <- NULL
+        }
     }
-    list(par=new)
+    ctx$par <- par
+    ctx$hst <- hst
+    ctx
 }
 
 
-# Function for prediction error
-CalcPredErr <- function
-(
-    lambdajVec, lambdaliMat, phi, baseKernelList, innerKernel,
-    trait, nSamp = 1e3, niter = 100, lr = 0.001, tol = 1e-5, ctx=NULL)
+## Function for prediction error
+CalcPredErr <- function(ctx, niter=100, lr=0.001, tol=1e-5, ...)
 {
     ## initialize gradient decent context
     nnt <- ctx$nnt
@@ -199,25 +203,17 @@ CalcPredErr <- function
         else
             matrix(1:d.o - 1, d.i, d.o, T)
     })
-    
     ctx <- within(list(),
     {
         y <- ctx$y
         par <- c(lmd, list(phi=1))
         knl <- knl
     })
-    ret <- GradDesc(ctx, nSamp=nSamp, max.itr=niter, lr=lr, min.err=tol);
 
+    ## perform Gradient Descent
+    ret <- GradDesc(ctx, max.itr=niter, lr=lr, min.err=tol, tol=tol, ...)
+    
     ## result
-    par <- ret$par
-    knl <- list(bas=baseKernelList, inr=innerKernel)
-    optValList <- CalcDerivLoss(par=par, knl, y=trait, nSamp=nSamp)
-    
-    ## Calculate prediction error
-    optAMat <- optValList$Amat;
-    predErr <- t(trait) %*% optAMat %*% trait;
-    
-    optimList <- list(lambdajVec=par$inr, lambdaliMat=par$bas, phi=par$phi, predErr=predErr)
-    returnList <- c(optValList, optimList);
-    return(returnList)
+    err <- ret$hst[[length(ret$hst)]]$err
+    err
 }

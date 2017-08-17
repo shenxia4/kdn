@@ -14,7 +14,7 @@ main <- function()
     nS <- 2                             # number of simulations
     nSeq <- 3e4                         # length of the genomic region
 
-    nN<-100                             # number of subjects
+    nN<-200                             # number of subjects
 
                                         # Parameters for generating traits
     traitMu <- rep(0, nN)
@@ -34,6 +34,7 @@ main <- function()
     niter <- 50
     tol <- 1e-5
 
+    Rprof()
     time1 <- proc.time()
     pred1 <- getPred(
         tag = tag, func.frq = func.frq, nS = nS, nSeq = nSeq, nN = nN, info = nfo, ped = ped,
@@ -44,6 +45,7 @@ main <- function()
         innerKernel = innerKernel,
         nSamp = nSamp, niter = niter, tol = tol)
     proc.time()-time1
+    Rprof(NULL)
 
     pred0 <- readRDS('dat/s525c.rds')
     all.equal(pred0, pred1)

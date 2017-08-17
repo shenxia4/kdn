@@ -133,14 +133,12 @@ getPred <- function
             nnt=list(
                 bas=list(knl=KList, out=3),
                 inr=list(knl=innerKernel)))
-        predList <- CalcPredErr(
-            lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, phi = varPhi, baseKernelList = KList, 
-            innerKernel = innerKernel, trait = trait, nSamp = nSamp, niter = niter, tol = tol,
-            ctx=ctx);
+        err <- CalcPredErr(ctx, nSamp = nSamp, niter = niter, tol = tol)
+        
         predVal.BLUPK <- getBPLMM(y = trait, D = sigmaR * traitSigma, Z = IdMat, R = phi * IdMat);
         predVal.BLUPI <- getBPLMM(y = trait, D = sigmaR * IdMat, Z = IdMat, R = phi * IdMat);
         
-        predErr[i] <- predList$predErr;
+        predErr[i] <- err
         predErr.BLUPK[i] <- t(trait - predVal.BLUPK) %*% (trait - predVal.BLUPK);
         predErr.BLUPI[i] <- t(trait - predVal.BLUPI) %*% (trait - predVal.BLUPI);
         
