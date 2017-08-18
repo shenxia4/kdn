@@ -12,7 +12,6 @@
 ##    inr: inner kernels (tokens)
 CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 {
-    
     ## dimensions
     N <- NROW(y)                        # sample size
     L <- nrow(par$bas)                  # number of base kernels
@@ -21,8 +20,8 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     K <- NCOL(par$inr)                  # number of output units (Y)
 
     ## Initialization variables
-    Amat <- matrix(0, N, N);            # A matrix
-    UMat <- matrix(0, N, M);            # U matrix (hidden units)
+    Amat <- matrix(0, N, N)             # A matrix
+    UMat <- matrix(0, N, M)             # U matrix (hidden units)
     
     ## organize the basic kernels into a 3D array where the last axis indices kernels,
     ## also append an identical kernel
@@ -44,11 +43,14 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 
     ## \PDV{A}{\phi}y, -- gradient of A wrt. phi time y
     dA.phi.y <- 0
-    
+
+    ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
+    ## dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
         UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, N), v))
+        ## UMat <- UArr[s, ,]
         
         ## Obtain the inner layer kernel matrices
         ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(N)))

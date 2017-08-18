@@ -20,6 +20,8 @@ FastInverseMatrix <- function(X)
     r = try(chol(X))
     if(inherits(r, 'try-error'))
     {
+        ##:ess-bp-start::browser@nil:##
+browser(expr=is.null(.ESSBP.[["@6@"]]));##:ess-bp-end:##
         print(r)
         return(r)
     }

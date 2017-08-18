@@ -14,7 +14,7 @@ main <- function()
     nS <- 2                             # number of simulations
     nSeq <- 3e4                         # length of the genomic region
 
-    nN<-200                             # number of subjects
+    nN<-400                             # number of subjects
 
                                         # Parameters for generating traits
     traitMu <- rep(0, nN)
