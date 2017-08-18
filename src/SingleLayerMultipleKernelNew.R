@@ -1,6 +1,35 @@
 ## source("HelperFunctions.R")
 ## source("KernelPool.R")
 
+.mvnm <- function (n=1, mu=0, sigma, tol=1e-06)
+{
+    p <- nrow(sigma)
+
+    eS <- eigen(sigma, symmetric = TRUE)
+    ev <- eS$values
+    if (!all(ev >= -tol * abs(ev[1L]))) 
+        stop("'Sigma' is not positive definite")
+
+    A <- sqrt(pmax(ev, 0))              # p-vector
+    if (p > n)
+    {
+        X <- matrix(rnorm(p * n), p, n)
+        ## t1 <- system.time(Y <- t(eS$vectors %*% (diag(A) %*% X)))
+        ## t2 <- system.time(Y <- t(eS$vectors %*% (A * X)))
+        ## t3 <- system.time(eS$vectors %*% diag(A) %*% X)
+        ## print(t1)
+        ## print(t2)
+        ## print(t3)
+    }
+    else
+    {
+        X <- matrix(rnorm(p * n), n, p)
+        ## X <- X %*% (diag(A) %*% t(eS$vectors))
+        X <- X %*% (A * t(eS$vectors))
+    }
+    X
+}
+
 ## Function used to calculate necessary derivatives for gradient descent algorithm
 ## par: parameters
 ##    inr: inner weights
@@ -44,13 +73,14 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## \PDV{A}{\phi}y, -- gradient of A wrt. phi time y
     dA.phi.y <- 0
 
-    ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
-    ## dim(UArr) <- c(nSamp, N, M)
+    print(system.time(UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))))
+    print(system.time(UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, rep(0, N), v))))
+    dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
-        UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, N), v))
-        ## UMat <- UArr[s, ,]
+        ## UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, N), v))
+        UMat <- UArr[s, ,]
         
         ## Obtain the inner layer kernel matrices
         ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(N)))
@@ -128,7 +158,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 ## max.itr : maximum number of iterations;
 ## lr      : is the initial learning rate;
 ## min.err : minimum training error to continue;
-GradDesc <- function(ctx, max.itr=100, lr=1e-3, max.lr=1e-1, tol=1e-5, min.err=1e-3, ...)
+GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e-1, tol=1e-5, min.err=1e-3, ...)
 {
     ## contex: hst*, par*, y, knl
     for(. in names(ctx)) assign(., ctx[[.]])
@@ -158,6 +188,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, max.lr=1e-1, tol=1e-5, min.err=1
             d.1 <- unlist(hst[[i-1]]$dvt)
             lr <- getLearningRate(p.i, p.1, d.i, d.1, type="B-BMethod")
             lr <- min(lr, max.lr)
+            lr <- max(lr, min.lr)
         }
         ## parameter differences, and its summation
         dff <- lapply(dvt, `*`, lr)
