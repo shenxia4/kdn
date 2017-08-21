@@ -1,5 +1,24 @@
 ## source("HelperFunctions.R")
 ## source("KernelPool.R")
+library('magrittr')
+
+.LDL <- function(x)
+{
+    ## LDL decomposition of PSD matrix {x}
+
+    ## using default Choleski decomposition, get the upper-triangle and diagnal
+    ## of LL* decomposition
+    u.chl <- chol(x)
+    s.chl <- diag(u.chl)
+
+    ## the square of LL* diagnal S is the LDL* diagnal D
+    D <- diag(s.chl^2)
+
+    ## the upper-tri of LDL* is the upper-tri of LL* times S^{-1}
+    U <- u.chl / s.chl
+
+    list(L=t(U), D=D, U=U)
+}
 
 .mvnm <- function (n=1, mu=0, sigma, tol=1e-06)
 {
@@ -51,7 +70,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## Initialization variables
     Amat <- matrix(0, N, N)             # A matrix
     UMat <- matrix(0, N, M)             # U matrix (hidden units)
-    
+
     ## organize the basic kernels into a 3D array where the last axis indices kernels,
     ## also append an identical kernel
     bkn <- vapply(c(knl$bas[1:L], list(diag(N))), unname, Amat)
@@ -73,8 +92,8 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## \PDV{A}{\phi}y, -- gradient of A wrt. phi time y
     dA.phi.y <- 0
 
-    print(system.time(UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))))
-    print(system.time(UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, rep(0, N), v))))
+    ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
+    UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, 0, v))
     dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {

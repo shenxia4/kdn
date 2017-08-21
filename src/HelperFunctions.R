@@ -18,7 +18,7 @@ expMat <- function(X, order = 1/2)
 FastInverseMatrix <- function(X)
 {
     XChol <- chol(X)
-    XInv <- chol2inv(XChol);
+    XInv <- chol2inv(XChol)
     return(XInv)
 }
 

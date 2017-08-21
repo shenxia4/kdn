@@ -1,45 +1,45 @@
-benchmark <- function()
-{
-    bkl = replicate(100, matrix(rnorm(100*100), 100, 100), simplify=F)
-    lmd = rnorm(100)
+## bm2hol <- function()
+## {
+##     bkl = replicate(100, matrix(rnorm(100*100), 100, 100), simplify=F)
+##     lmd = rnorm(100)
 
-    library(abind)
-    arr = unname(do.call(abind, list(bkl, along=0)))
-    ftb <- arr
-    dim(ftb) <- c(100, 100*100)
+##     library(abind)
+##     arr = unname(do.call(abind, list(bkl, along=0)))
+##     ftb <- arr
+##     dim(ftb) <- c(100, 100*100)
 
-    time1 <- proc.time()
-    for(i in 1:2e5)
-    {
-        ##    user  system elapsed 
-        ## 653.136   0.284 654.133 
-        abc <- mapply('*', bkl, lmd, SIMPLIFY = FALSE)
-        abc <- Reduce('+', abc)
-    }
-    time2 <- proc.time()
-    for(i in 1:2e5)
-    {
-        ##    user  system  elapsed 
-        ## 413.848  94.284  508.119 
-        def <- lmd * arr
-        def <- colSums(def)
-    }
-    time3 <- proc.time()
-    for(i in 1:2e5)
-    {
-        ##    user    system  elapsed 
-        ## 523.684  1006.736  195.166 
-        ghi <- crossprod(lmd, ftb)
-        dim(ghi) <- c(100, 100)
-    }
-    time4 <- proc.time()
+##     time1 <- proc.time()
+##     for(i in 1:2e5)
+##     {
+##         ##    user  system elapsed 
+##         ## 653.136   0.284 654.133 
+##         abc <- mapply('*', bkl, lmd, SIMPLIFY = FALSE)
+##         abc <- Reduce('+', abc)
+##     }
+##     time2 <- proc.time()
+##     for(i in 1:2e5)
+##     {
+##         ##    user  system  elapsed 
+##         ## 413.848  94.284  508.119 
+##         def <- lmd * arr
+##         def <- colSums(def)
+##     }
+##     time3 <- proc.time()
+##     for(i in 1:2e5)
+##     {
+##         ##    user    system  elapsed 
+##         ## 523.684  1006.736  195.166 
+##         ghi <- crossprod(lmd, ftb)
+##         dim(ghi) <- c(100, 100)
+##     }
+##     time4 <- proc.time()
 
-    print(all.equal(abc, def))
-    print(all.equal(abc, ghi))
-    print(time2 - time1)
-    print(time3 - time2)
-    print(time4 - time3)
-}
+##     print(all.equal(abc, def))
+##     print(all.equal(abc, ghi))
+##     print(time2 - time1)
+##     print(time3 - time2)
+##     print(time4 - time3)
+## }
 
 KW <- function(k, w, drop=TRUE)
 {
@@ -72,108 +72,37 @@ KW <- function(k, w, drop=TRUE)
     k
 }
 
-UKV <- function(u, k, v=NULL)
+bm1 <- function(n=50, s=5000)
 {
-    ## calculate the K quadratic sum u_i' k_i v_i for all i=1...K squares.
-    ##
-    ## inputs:
-    ## {k}: K squares of size N, organized in a N-N-K array;
-    ## {u}: K sets of N-weights in a N-K matrix, to be transoposed and placed
-    ## at the left of a square
-    ## {v}: K sets of N-weights in a N-K matrix, to be placed at the right of
-    ## a square. if being left empty, it takes the value of {u}.
-    ## 
-    ## return: a K-vector, where the i th. entry is the quadratic sum of the k
-    ## th. square k_i weighted by u_i and v_i, that is, r_i = w_i' k_i w_i
-    if(is.null(v)) v <- u
-    K = dim(k)[3]
-    r = double(K)
-    for(i in 1:K) r[i] <- crossprod(u[, i], k[, , i] %*% v[, i])
-    r
-}
-
-bmk1 <- function(P=4, N=1000)
-{
-    ## 3-axis array of P kernels (thay are symmetric)
-    arr <- rnorm(N^2 * P); dim(arr) <- c(N, N, P)
-    knl <- list()
-    for(i in 1:P)
-    {
-        arr[, , i] <- crossprod(arr[, , i])
-        knl <- c(knl, list(arr[, , i]))
-    }
-
-    ## weight matrix
-    lmd <- matrix(rnorm(N * P), N, P)
-    print('get ready')
-
-    ## method 1: loops
-    t0 <- proc.time()
-    rt1 <- sum(sapply(1:P, function(i) crossprod(lmd[, i], arr[, , i] %*% lmd[, i])))
-    t1 <- proc.time()
-    print(t1 - t0)
-
-    t0 <- proc.time()
-    rt3 <- sum(UKV(lmd, arr))
-    t1 <- proc.time()
-    print(t1 - t0)
+    n^2 %>% rnorm %>% matrix(n) %>% crossprod -> x
+    u <- chol(x)
+    v <- solve(x, diag(n))
+    l <- t(u)
     
-    ## method 2: lists and traces
-    ## t1 <- proc.time()
-    ## trs <- 0.0
-    ## for(i in 1:P) trs <- trs + sum(diag(arr[, , i] %*% tcrossprod(lmd[, i])));
-    ## rt2 <- trs
-    ## t2 <- proc.time()
-    ## print(t2 - t1)
+    ## facts:
+    ## l == t(u) and t(l) == u
+    ## l %*% u == l %*% t(l) == t(u) %*% u == x
+    ## benchmark(
+        ## iu <- backsolve(u, I, n, T),    # ***
+        ## il <- backsolve(l, I, n, F),    # **
+        ## ic <- chol2inv(u),              # *
+        ## replications=5)
+    ## facts: iu %*% t(iu) == t(il) %*% il) == inv(x)
 
-    print(all.equal(rt1, rt3))
-}
+    (s*n) %>% rnorm %>% matrix(s, n) -> s
+    ## benchmark(
+    ##     sc <- a %*% chol(ic),
+    ##     su <- tcrossprod(a, iu),
+    ##     replications=5)
 
-bmk2 <- function(P=4, N=1000)
-{
-    source('src/HelperFunctions.R')
-    X = crossprod(rnorm(N * N, N, N))
+    ## benchmark(
+    ##     sc <- s %*% chol(chol2inv(u)),
+    ##     su <- tcrossprod(s, backsolve(u, diag(n))),
+    ##     replications=5) %>% print
 
-    print('#1')
-    t0 <- proc.time()
-    for(i in 1:1e5)
-        crossprod(X)
-    print(proc.time() - t0)
-    ## print('#2')
-    t0 <- proc.time()
-    for(i in 1:1e5)
-        FastInverseMatrix(X)
-    print(proc.time() - t0)
-    
-}
-
-bmk3 <- function(P=20, Q=40, N=2000)
-{
-    ## 3-axis array format
-    arr <- rnorm(N^2 * P)
-    dim(arr) <- c(N, N, P)
-
-    ## list of matrix format
-    knl <- lapply(1:P, function(i) arr[, , i])
-
-    ## weights
-    lmd <- matrix(rnorm(P * Q), P, Q)
-
-    ## list routine
-    cmb <- list()
-    t1 <- proc.time()
-    for (i in 1:Q)
-    {
-        rst <- mapply(`*`, knl, lmd[, i], SIMPLIFY = FALSE);
-        cmb[[i]] <- Reduce(`+`, rst)
-    }
-    t2 <- proc.time()
-    arr <- kW(arr, lmd)
-    t3 <- proc.time()
-    for(i in 1:Q)
-    {
-        print(all.equal(cmb[[i]], arr[, , i]))
-    }
-    print(t2-t1)
-    print(t3-t2)
+    benchmark(
+        sc <- s %*% chol(chol2inv(u)),
+        su <- tcrossprod(s, backsolve(u, diag(n))),
+        replications=2) %>% print
+    list(v=v, sc=sc, su=su)
 }
