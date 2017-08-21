@@ -1,23 +1,57 @@
-## source("HelperFunctions.R")
+source("src/HelperFunctions.R")
 ## source("KernelPool.R")
 library('magrittr')
 
-.LDL <- function(x)
+#' Sum of vector elements.
+#'
+#' \code{.chl.inv.mvn} draws multi-variant normal (mvn) sample whose covariance is
+#' the inverse of a symmetric matrix \code{x}.
+#'
+#' By sharing the upper-triangle, the function avoids double Cholesky decomposition
+#' typically needed to speed up the inversion of \code{x}, and the mvn sampling from
+#' \code{x}^{-1}
+#' 
+#' It should roughly halv the total execution time required by the two operations if
+#' they were run seperately.
+#' 
+#' @param x Numeric, positive definite matrix. no sanity checking is imposed.
+#' @param n Numeric, positve scalar, the number of sample mvn samples to be drawn.
+#' @param ret.inv, logical, TRUE return inverse of \code{x} as well, otherwise, only
+#' perform the mvn sampling
+#'
+#' @return If all inputs are integer and logical, then the output
+#'   will be an integer. If integer overflow
+#'   \url{http://en.wikipedia.org/wiki/Integer_overflow} occurs, the output
+#'   will be NA with a warning. Otherwise it will be a length-one numeric or
+#'   complex vector.
+#'
+#'   Zero-length vectors have sum 0 by definition. See
+#'   \url{http://en.wikipedia.org/wiki/Empty_sum} for more details.
+#' @examples
+#' n <- 100
+#' p <- 500
+#' x <- crossprod(matrix(rnorm(p^2), p, p))
+#' 
+#' y <- .chl.inv.mvn(x, n)
+#' 
+#' \dontrun{
+#' #' sum("a")
+#' }
+.chl.inv.mvn <- function(x, n=1, ret.inv=FALSE)
 {
-    ## LDL decomposition of PSD matrix {x}
+    ## upper triangle of Cholesky decomposition of x
+    u <- chol(x)
+    p <- nrow(x)
 
-    ## using default Choleski decomposition, get the upper-triangle and diagnal
-    ## of LL* decomposition
-    u.chl <- chol(x)
-    s.chl <- diag(u.chl)
+    ## upper-tri of the the inverse x^{-1}
+    v <- backsolve(u, diag(p))
+    
+    ## mvn sampling from N(I_p, x^{-1})
+    mvn <- (n * p) %>% rnorm %>% matrix(n, p) %>% tcrossprod(v)
 
-    ## the square of LL* diagnal S is the LDL* diagnal D
-    D <- diag(s.chl^2)
-
-    ## the upper-tri of LDL* is the upper-tri of LL* times S^{-1}
-    U <- u.chl / s.chl
-
-    list(L=t(U), D=D, U=U)
+    ## return inverse of x as well?
+    ret <- if(ret.inv) list(mvn=mvn, inv=tcrossprod(v)) else mvn
+    ret
 }
 
 .mvnm <- function (n=1, mu=0, sigma, tol=1e-06)
@@ -80,7 +114,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     dim(.) <- c(N^2, L+1)
     . <- . %*% rbind(exp(par$bas), 1)
     dim(.) <- c(N, N, M)
-    UCV <- vapply(1:M, function(i) FastInverseMatrix(.[, , i]), Amat)
+    UCV <- vapply(1:M, function(i) chol2inv(chol(.[, , i])), Amat)
     
     ## gradient accumulents
     ## \PDV{A}{\lambda_j }y, for all j,   -- gradient of A wrt. inner weights times y
@@ -93,7 +127,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     dA.phi.y <- 0
 
     ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
-    UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, 0, v))
+    UArr <- apply(., 3L, function(v) .mvnm(nSamp, 0, v))
     dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {

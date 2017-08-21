@@ -77,10 +77,9 @@ bm1 <- function(n=50, s=5000)
     n^2 %>% rnorm %>% matrix(n) %>% crossprod -> x
     u <- chol(x)
     v <- solve(x, diag(n))
-    l <- t(u)
     
     ## facts:
-    ## l == t(u) and t(l) == u
+    ## let l == t(u) and t(l) == u
     ## l %*% u == l %*% t(l) == t(u) %*% u == x
     ## benchmark(
         ## iu <- backsolve(u, I, n, T),    # ***
@@ -106,3 +105,4 @@ bm1 <- function(n=50, s=5000)
         replications=2) %>% print
     list(v=v, sc=sc, su=su)
 }
+
