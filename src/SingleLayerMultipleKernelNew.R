@@ -103,19 +103,28 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## parameters
     tao.bas <- exp(par$bas) # weights connecting basic kernels and UCVs
     tao.inr <- exp(par$inr) # weights connecting inner kernels and YCV
-    phi <- par$phi
+    phi <- par$phi          # the 'round' phi
+    PHI <- exp(phi)         # the 'stick through circle' phi
 
     ## organize the basic kernels into a 3D array where the last axis indices kernels,
     ## also append a phi-identical kernel at the end
-    bkn <- vapply(c(knl$bas[1:L], list(diag(phi, N))), unname, Amat)
+    bkn <- vapply(c(knl$bas[1:L], list(diag(N))), unname, Amat)
 
-    .dim <- function(x, ...) {dim(x) <- c(...); x}
+    .dim <- function(x, ...)
+    {
+        dim(x) <- c(...)
+        x
+    }
     .mbm <- .Primitive('%*%')
-    ## the covariance of M hidden units U_{1...M} (NOT DEPEND ON U MATRIX!), is the
-    ## weighted sum of base kernels {bkn}.
-    UCV <- bkn %>% .dim(N^2, L+1) %>% .mbm(rbind(tao.bas, 1)) %>% .dim(N, N, M)
-    UCV.chl <- vapply(1:M, function(i) chol(UCV[, , i]), Amat)
-    IUC <- vapply(1:M, function(i) chol2inv(UCV.chl[, , i]), Amat)
+    ## the covariance of M hidden units U_{1...M} (UCV, NOT DEPEND ON U MATRIX!), is
+    ## based on the N sum of base kernels {bkn} weighted by {tao.bas}.
+    ## 1) the M weighted sum and their Cholesky decomposition
+    mix <- bkn %>% .dim(N^2, L+1) %>% .mbm(rbind(tao.bas, 1)) %>% .dim(N, N, M)
+    mix.chl <- vapply(1:M, function(i) chol(mix[, , i]), Amat)
+    ## 2) the inversed combination
+    IUC <- vapply(1:M, function(i) chol2inv(mix.chl[, , i]), Amat)
+    ## 3) the Cholesky decomposition of UCV (covariance of hidden units)
+    UCV.chl <- mix.chl * sqrt(PHI)
     
     ## gradient accumulents
     ## \PDV{A}{\lambda_j }y, for all j,   -- gradient of A wrt. inner weights times y
@@ -127,11 +136,16 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## \PDV{A}{\phi}y, -- gradient of A wrt. phi time y
     dA.phi.y <- 0
 
-    ## . <- rnorm(nSamp * N * M)
-    ## . <- .dim(nSamp, N, M)
-    ## . <- vapply(1:M, function(s) .[, , i] %*% UCV.chl[, , i], matrix(0, nSamp, N))
-    UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, 0, v))
-    dim(UArr) <- c(nSamp, N, M)
+    ## sampling of hidden units
+    ## 1) draw enough numbers from i.i.d. normal 
+    UArr <- (nSamp * N * M) %>% rnorm %>% .dim(nSamp, N, M)
+    ## 2) impose correlation
+    UArr <- vapply(1:M, function(i)
+    {
+        UArr[, , i] %*% UCV.chl[, , i] * sqrt(PHI)
+    }, matrix(0, nSamp, N))
+    ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
+    ## dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
@@ -139,7 +153,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
         UMat <- UArr[s, ,]
         
         ## Obtain the inner layer kernel matrices
-        ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(phi, N)))
+        ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(N)))
         ikn <- vapply(ikn, I, Amat)
         
         ## inner kernels combination serves as predicted VCV of Y, whose inverse
@@ -211,7 +225,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 ## max.itr : maximum number of iterations;
 ## lr      : is the initial learning rate;
 ## min.err : minimum training error to continue;
-GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e1, tol=1e-5, min.err=1e-3, ...)
+GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-9, max.lr=1e1, tol=1e-5, min.err=1e-3, ...)
 {
     ## contex: hst*, par*, y, knl
     for(. in names(ctx)) assign(., ctx[[.]])
@@ -232,7 +246,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e1, tol=1e-
         err <- with(ret, y %*% Amat %*% y)    # pred-error
 
         ## learning rate
-        if(i < 3)                       # Initial learning rate
+        if(i < 100)                     # Initial learning rate
             lr <- getLearningRate(lr=lr, type = "Specified")
         else                            # dynamic learning rate
         {
@@ -276,7 +290,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e1, tol=1e-
 
 
 ## Function for prediction error
-CalcPredErr <- function(ctx, niter=100, lr=0.001, tol=1e-5, ...)
+CalcPredErr <- function(ctx, niter=100, lr=1e-3, tol=1e-6, ...)
 {
     ## initialize gradient decent context
     nnt <- ctx$nnt

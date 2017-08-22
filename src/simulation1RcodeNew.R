@@ -32,8 +32,8 @@ main <- function()
     lambdajVec <- c(1,1)
     lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T)
     nSamp <- 20
-    niter <- 20
-    tol <- 1e-5
+    niter <- 100
+    tol <- 1e-10
 
     Rprof()
     time1 <- proc.time()
