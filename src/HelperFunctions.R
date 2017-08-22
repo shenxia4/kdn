@@ -15,12 +15,12 @@ expMat <- function(X, order = 1/2)
 }
 
 ## Function Used to Fastly Inverse a Large Matrix
-FastInverseMatrix <- function(X)
-{
-    XChol <- chol(X)
-    XInv <- chol2inv(XChol)
-    return(XInv)
-}
+## FastInverseMatrix <- function(X)
+## {
+##     XChol <- chol(X)
+##     XInv <- chol2inv(XChol)
+##     return(XInv)
+## }
 
 ## Trace Function
 tr <- function(X)

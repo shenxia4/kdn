@@ -14,8 +14,8 @@ library('magrittr')
 #' It should roughly halv the total execution time required by the two operations if
 #' they were run seperately.
 #' 
-#' @param x Numeric, positive definite matrix. no sanity checking is imposed.
-#' @param n Numeric, positve scalar, the number of sample mvn samples to be drawn.
+#' @param x numeric, positive definite matrix. no sanity checking is imposed.
+#' @param n numeric, positve scalar, the number of sample mvn samples to be drawn.
 #' @param ret.inv, logical, TRUE return inverse of \code{x} as well, otherwise, only
 #' perform the mvn sampling
 #'
@@ -67,12 +67,6 @@ library('magrittr')
     if (p > n)
     {
         X <- matrix(rnorm(p * n), p, n)
-        ## t1 <- system.time(Y <- t(eS$vectors %*% (diag(A) %*% X)))
-        ## t2 <- system.time(Y <- t(eS$vectors %*% (A * X)))
-        ## t3 <- system.time(eS$vectors %*% diag(A) %*% X)
-        ## print(t1)
-        ## print(t2)
-        ## print(t3)
     }
     else
     {
@@ -83,15 +77,16 @@ library('magrittr')
     X
 }
 
-## Function used to calculate necessary derivatives for gradient descent algorithm
-## par: parameters
-##    inr: inner weights
-##    bas: basic weights
-##    phi: phi
-## y is the phenotype vector
-## knl: kernels
-##    bas: basic kernels (matrices)
-##    inr: inner kernels (tokens)
+#' calculate necessary derivatives for gradient descent algorithm
+#' @param par list, parameters to calculate derivatives
+#'    inr: numeric inner kernel weights, a vector for now
+#'    bas: numeric basic kernel weights, a L by M matrix
+#'    phi: numeric the phi scalar
+#' @param y numeric, the phenotype vector
+#' @param knl list, of numeric matrix, string names, or bi-operand
+#' function.
+#'    bas: basic kernels (usually matrices)
+#'    inr: inner kernels (usually names)
 CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 {
     ## dimensions
@@ -105,16 +100,22 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     Amat <- matrix(0, N, N)             # A matrix
     UMat <- matrix(0, N, M)             # U matrix (hidden units)
 
-    ## organize the basic kernels into a 3D array where the last axis indices kernels,
-    ## also append an identical kernel
-    bkn <- vapply(c(knl$bas[1:L], list(diag(N))), unname, Amat)
+    ## parameters
+    tao.bas <- exp(par$bas) # weights connecting basic kernels and UCVs
+    tao.inr <- exp(par$inr) # weights connecting inner kernels and YCV
+    phi <- par$phi
 
-    ## get the covariance structure of M hidden units (NOT DEPEND ON U MATRIX!)
-    . <- bkn
-    dim(.) <- c(N^2, L+1)
-    . <- . %*% rbind(exp(par$bas), 1)
-    dim(.) <- c(N, N, M)
-    UCV <- vapply(1:M, function(i) chol2inv(chol(.[, , i])), Amat)
+    ## organize the basic kernels into a 3D array where the last axis indices kernels,
+    ## also append a phi-identical kernel at the end
+    bkn <- vapply(c(knl$bas[1:L], list(diag(phi, N))), unname, Amat)
+
+    .dim <- function(x, ...) {dim(x) <- c(...); x}
+    .mbm <- .Primitive('%*%')
+    ## the covariance of M hidden units U_{1...M} (NOT DEPEND ON U MATRIX!), is the
+    ## weighted sum of base kernels {bkn}.
+    UCV <- bkn %>% .dim(N^2, L+1) %>% .mbm(rbind(tao.bas, 1)) %>% .dim(N, N, M)
+    UCV.chl <- vapply(1:M, function(i) chol(UCV[, , i]), Amat)
+    IUC <- vapply(1:M, function(i) chol2inv(UCV.chl[, , i]), Amat)
     
     ## gradient accumulents
     ## \PDV{A}{\lambda_j }y, for all j,   -- gradient of A wrt. inner weights times y
@@ -126,56 +127,55 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## \PDV{A}{\phi}y, -- gradient of A wrt. phi time y
     dA.phi.y <- 0
 
-    ## UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
-    UArr <- apply(., 3L, function(v) .mvnm(nSamp, 0, v))
+    ## . <- rnorm(nSamp * N * M)
+    ## . <- .dim(nSamp, N, M)
+    ## . <- vapply(1:M, function(s) .[, , i] %*% UCV.chl[, , i], matrix(0, nSamp, N))
+    UArr <- apply(UCV, 3L, function(v) .mvnm(nSamp, 0, v))
     dim(UArr) <- c(nSamp, N, M)
     for(s in 1:nSamp)
     {
         ## Sample U from the multivariate normal distribution
-        ## UMat <- apply(UCV, 3L, function(v) mvrnorm(1, rep(0, N), v))
+        ## UMat <- apply(IUC, 3L, function(v) mvrnorm(1, rep(0, N), v))
         UMat <- UArr[s, ,]
         
         ## Obtain the inner layer kernel matrices
-        ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(N)))
+        ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(phi, N)))
         ikn <- vapply(ikn, I, Amat)
         
-        ## inversed inner kernels combination serves as predicted VCV of Y,
-        ## which is also a sample of matrix A: YVC = A[s]
-        . <- ikn
-        dim(.) <- c(N^2, J+1)
-        . <- . %*% c(exp(par$inr), 1)
-        dim(.) <- c(N, N)
-        YCV <- FastInverseMatrix(.)
+        ## inner kernels combination serves as predicted VCV of Y, whose inverse
+        ## is also a sample of matrix A: A[s] == IYC
+        YCV <- ikn %>% .dim(N^2, J+1) %>% .mbm(c(tao.inr, 1)) %>% .dim(N, N)
+        IYC <- chol2inv(chol(YCV))      # inverse of Y covariance
         
         ## accmulate matrix A
-        Amat <- Amat + YCV
+        Amat <- Amat + IYC
 
         ## y'A
-        yT.A <- crossprod(y, YCV)
+        yT.A <- crossprod(y, IYC)
         
         ## For derivatives of A with respect to inner weights lambda_j
         dA.inr.y <- dA.inr.y + vapply(1:J, function(j)
         {
             ## \dev(A, lmd_j) y = A K_j A y = y' A K_j A for all j.
-            -exp(par$inr[j]) * yT.A %*% ikn[, , j] %*% YCV
+            -exp(par$inr[j]) * yT.A %*% ikn[, , j] %*% IYC
         }, y)
 
         ## For derivatives of A with respect to basic weights lambda_{li}
         ret <- mapply(function(l, i)
         {
-            . <- UCV[, , i] %*% UMat[, i]
-            . <- - exp(-par$phi) * crossprod(., bkn[, , l] %*% .)
-            . <- sum(UCV[, , i] * bkn[, , l]) + .
-            -.5 * exp(par$bas[l, i]) * .
+            . <- IUC[, , i] %*% UMat[, i]
+            . <- - exp(-phi) * crossprod(., bkn[, , l] %*% .)
+            . <- sum(IUC[, , i] * bkn[, , l]) + .
+            -.5 * tao.bas[l, i] * .
         }, rep(1:L, t=M), rep(1:M, e=L))
         ## \dev(A, lmd_li)y = A [..] y = y' A [..] for all (l, i)
         dim(ret) <- c(1, L, M)
         dA.bas.y <- dA.bas.y + kronecker(ret, drop(yT.A))
         
         ## For derivative of phi
-        . <- sum(sapply(1:M, function(i) crossprod(UMat[, i], UCV[, , i] %*% UMat[, i])))
+        . <- sum(sapply(1:M, function(i) crossprod(UMat[, i], IUC[, , i] %*% UMat[, i])))
         ## \dev(A, phi) y = A [.] y = (y' A)' . = A y [.]
-        dA.phi.y <- dA.phi.y + drop(yT.A) * -.5 * (M * N - exp(-par$phi) * .)
+        dA.phi.y <- dA.phi.y + drop(yT.A) * -.5 * (M * N - exp(-phi) * .)
     }
 
     Amat <- Amat / nSamp
@@ -211,7 +211,7 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
 ## max.itr : maximum number of iterations;
 ## lr      : is the initial learning rate;
 ## min.err : minimum training error to continue;
-GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e-1, tol=1e-5, min.err=1e-3, ...)
+GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e1, tol=1e-5, min.err=1e-3, ...)
 {
     ## contex: hst*, par*, y, knl
     for(. in names(ctx)) assign(., ctx[[.]])
@@ -228,6 +228,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e-1, tol=1e
         ret <- CalcDerivLoss(par, knl, y, ...)
         dvt <- ret$dvt                        # gradient
         mdv <- max(abs(unlist(dvt)))          # gradient maximum
+        mpv <- max(abs(unlist(par)))          # parameter maximum
         err <- with(ret, y %*% Amat %*% y)    # pred-error
 
         ## learning rate
@@ -248,8 +249,8 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-6, max.lr=1e-1, tol=1e
         sdf <- sum(abs(unlist(dff)))
 
         ## gather report
-        rpt <- list(ep=i, err=err, lr=lr, mdv=mdv, sdf=sdf)
-        cat(do.call(sprintf, c("%04d: %.1e %.1e %.1e %.1e\n", rpt)))
+        rpt <- list(ep=i, err=err, lr=lr, mdv=mdv, mpv=mpv, sdf=sdf)
+        cat(do.call(sprintf, c("%04d: %.1e %.1e %.1e %.1e %.1e\n", rpt)))
 
         ## record history
         hst[[i]] <- c(rpt, list(par=par, dvt=dvt))

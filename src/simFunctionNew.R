@@ -91,7 +91,7 @@ getPred <- function
     
     IdMat <- diag(rep(1, nN));
     
-    ## set.seed(525)
+    set.seed(525)
     seg.pos <- runif(nS, 0, 1e6-nSeq);
     n.rare <- NULL;
     
@@ -146,7 +146,7 @@ getPred <- function
         cat("\n");
     }
     ## close(pb)
-    ## set.seed(NULL);
+    set.seed(NULL);
     
     result <- matrix(
         c(mean(predErr), sd(predErr),

@@ -14,7 +14,7 @@ main <- function()
     nS <- 2                             # number of simulations
     nSeq <- 3e4                         # length of the genomic region
 
-    nN<-500                             # number of subjects
+    nN<-100                             # number of subjects
 
                                         # Parameters for generating traits
     traitMu <- rep(0, nN)
@@ -31,7 +31,7 @@ main <- function()
     innerKernel <- c("product", "product", "identity", "product")
     lambdajVec <- c(1,1)
     lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T)
-    nSamp <- 10
+    nSamp <- 20
     niter <- 20
     tol <- 1e-5
 
