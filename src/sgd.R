@@ -117,12 +117,11 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     ## the covariance of M hidden units U_{1...M} (UCV, NOT DEPEND ON U MATRIX!), is
     ## based on the sum of base kernels {bkn} weighted by {tao.bas}.
     ## 1) the M weighted sum and their Cholesky decomposition
-    mix <- bkn %>% .dim(N^2, L+1) %>% .mbm(rbind(tao.bas, 1)) %>% .dim(N, N, M)
-    mix.chl <- vapply(1:M, function(i) chol(mix[, , i]), Amat)
+    BMX <- bkn %>% .dim(N^2, L+1) %>% .mbm(rbind(tao.bas, 1)) %>% .dim(N, N, M)
     ## 2) the inversed combination
-    IUC <- vapply(1:M, function(i) chol2inv(mix.chl[, , i]), Amat)
-    ## 3) the Cholesky decomposition of UCV (covariance of hidden units)
-    #3 UCV.chl <- mix.chl * sqrt(PHI)
+    IUC <- vapply(1:M, function(i) chol2inv(chol(BMX[, , i])), Amat)
+    ## 3) the VCV of M hidden units U_{1...M}
+    UCV <- vapply(1:M, function(i) BMX[, , i] * PHI, Amat)
     
     ## gradient accumulents
     ## \PDV{A}{\lambda_j }y, for all j,   -- gradient of A wrt. inner weights times y
@@ -135,28 +134,19 @@ CalcDerivLoss <- function(par, knl, y, nSamp=1e3, ...)
     dA.phi.y <- 0
 
     ## sampling of hidden units
-    ## 1) draw enough numbers from i.i.d. normal 
-    ## UArr <- (nSamp * N * M) %>% rnorm %>% .dim(nSamp, N, M)
-    ## 2) impose correlation
-    ## UArr <- vapply(1:M, function(i)
-    ## {
-    ##     UArr[, , i] %*% UCV.chl[, , i] * sqrt(PHI)
-    ## }, matrix(0, nSamp, N))
-    UCV <- vapply(1:M, function(i) mix[, , i] * PHI, Amat)
-    UArr <- apply(UCV, 3L, function(v) mvrnorm(nSamp, rep(0, N), v))
-    dim(UArr) <- c(nSamp, N, M)
+    UArr <- vapply(1:M, function(i)
+        mvrnorm(nSamp, rep(0, N), UCV[, , i]), matrix(.0, nSamp, N))
     for(s in 1:nSamp)
     {
-        ## Sample U from the multivariate normal distribution
-        ## UMat <- apply(IUC, 3L, function(v) mvrnorm(1, rep(0, N), v))
+        ## N by M, the {s} th. sample from mvn(0, UCV[, , i]) for i = 1...M
         UMat <- UArr[s, ,]
         
         ## Obtain the inner layer kernel matrices
         ikn <- c(lapply(knl$inr[1:J], findKernel, geno=UMat), list(diag(N)))
         ikn <- vapply(ikn, I, Amat)
         
-        ## inner kernels combination serves as predicted VCV of Y, whose inverse
-        ## is also a sample of matrix A: A[s] == IYC
+        ## inner kernel combination serves as predicted VCV of Y, whose inverse
+        ## is also the s th. sample of A matrix: A = IYC = YCV^{-1}
         YCV <- ikn %>% .dim(N^2, J+1) %>% .mbm(c(tao.inr, 1)) %>% .dim(N, N)
         IYC <- chol2inv(chol(YCV))      # inverse of Y covariance
         

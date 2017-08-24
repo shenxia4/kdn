@@ -131,7 +131,7 @@ getPred <- function
         ctx <- list(
             y=trait,
             nnt=list(
-                bas=list(knl=KList, out=3),
+                bas=list(knl=KList, out=8),
                 inr=list(knl=innerKernel)))
         err <- CalcPredErr(ctx, nSamp = nSamp, niter = niter, tol = tol)
         
