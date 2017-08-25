@@ -3,7 +3,7 @@ source("src/HelperFunctions.R")
 source("src/KernelPool.R")
 source("src/simFunctionNew.R")
 source("src/sgd.R")
-source("src/TraitSimulation.R")
+source("src/sim.R")
 
 #' the main evaluation entrance
 #' genotype data is loaded from 'dat/gno.rds'
@@ -34,8 +34,7 @@ main <- function(N=200, ffr=.5, itr=1, ngv=3e4, nep=100, mvn=20)
 
     ## Parameters for gradient descent algorithm
     fromBaseKernel <- c("CAR", "identity")
-    ## innerKernel <- c("identity", "product")
-    innerKernel <- c("product", "product", "identity", "product")
+    innerKernel <- c("identity", "product")
     lambdajVec <- c(1,1)
     lambdaliMat <- matrix(c(0,1,2,0,1,2), nrow = 2, byrow = T)
     tol <- 1e-10
@@ -44,7 +43,7 @@ main <- function(N=200, ffr=.5, itr=1, ngv=3e4, nep=100, mvn=20)
     time1 <- proc.time()
     pred1 <- getPred(
         tag = tag, func.frq = ffr, nS = itr, nSeq = ngv, nN = N, info = nfo, ped = ped,
-        traitMu = rep(0, N), traitSigma = traitSigma, traitFun = traitFun,
+        traitMu = rep(0, N), traitSigma = traitSigma,
         sigmaR = sigmaR, phi = phi, order = order,
         fromBaseKernel = fromBaseKernel, UserDef = NULL, 
         lambdajVec = lambdajVec, lambdaliMat = lambdaliMat, varPhi = 1,

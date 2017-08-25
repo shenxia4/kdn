@@ -245,7 +245,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-9, max.lr=1e1, tol=1e-
         err <- with(ret, y %*% Amat %*% y)    # pred-error
 
         ## learning rate
-        if(i < 1000)                    # Initial learning rate
+        if(i < 2)                    # Initial learning rate
             lr <- getLearningRate(lr=lr, type = "Specified")
         else                            # dynamic learning rate
         {
@@ -254,8 +254,8 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-9, max.lr=1e1, tol=1e-
             d.i <- unlist(dvt)
             d.1 <- unlist(hst[[i-1]]$dvt)
             lr <- getLearningRate(p.i, p.1, d.i, d.1, type="B-BMethod")
-            lr <- min(lr, max.lr)
-            lr <- max(lr, min.lr)
+            ## lr <- min(lr, max.lr)
+            ## lr <- max(lr, min.lr)
         }
         ## parameter differences, and its summation
         dff <- lapply(dvt, `*`, lr)

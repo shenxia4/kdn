@@ -235,7 +235,7 @@ GradDesc <- function(ctx, max.itr=100, lr=1e-3, min.lr=1e-9, max.lr=1e1, tol=1e-
         err <- with(ret, y %*% Amat %*% y)    # pred-error
 
         ## learning rate
-        if(i < 1000)                    # Initial learning rate
+        if(i < 3)                       # Initial learning rate
             lr <- getLearningRate(lr=lr, type = "Specified")
         else                            # dynamic learning rate
         {

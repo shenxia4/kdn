@@ -1,3 +1,5 @@
+library(MASS)         # require mvrnorm
+
 ## Function for getting weights of rare variants
 getWeights <- function(tag, geno, maf)
 {
@@ -58,13 +60,24 @@ getKernelList <- function(fromBaseKernel , geno, maf = NULL, weights = 1)
     return(kernelList)
 }
 
-get.gno <- function(ped, N=NULL, P=3e4, ...)
+get.gno <- function(N=NULL, L=3e4, P=2^10, ...)
 {
-    gmx <- unname(ped$ped)
-    nfo <- ped$nfo
+    if(!exists('.gno'))
+        .gno <<- readRDS('dat/gno.rds')
+    gmx <- .gno$ped
+    nfo <- .gno$nfo
 
-    ## variant index
-    jdx <- 1:ncol(gmx)
+    ## carve out a segment of genome ?
+    if(!is.null(L))
+    {
+        jdx <- with(nfo,
+        {
+            . <- sample.int(tail(pos, 1) - (L + 1), 1)
+            which(. < pos & pos < . + L)
+        })
+    }
+    else
+        jdx <- 1:ncol(gmx)
 
     ## subset samples
     if(!is.null(N) && N < nrow(gmx))
@@ -74,9 +87,9 @@ get.gno <- function(ped, N=NULL, P=3e4, ...)
         ## remove degeneracy
         jdx <- jdx[colSums(gmx) > 0]
     }
-
+    
     ## subset variants
-    jdx <- sort(sample(jdx, P))
+    jdx <- sort(sample(jdx, min(P, length(jdx))))
     gmx <- gmx[, jdx]
     nfo <- nfo[jdx, ]
 
@@ -127,7 +140,9 @@ getPred <- function
         vrt <- apply(geno, 2, variant);
         geno <- as.matrix(geno[,vrt]);
         maf <- maf[vrt];
-        
+        ## . <- get.gno(nN, nSeq)
+        ## geno <- .$gmx
+        ## maf <- .$maf
         idx.true <- sample(1:ncol(geno),ncol(geno)*func.frq);
         geno.true<-as.matrix(geno[,idx.true]);
         maf.true<-maf[idx.true];
