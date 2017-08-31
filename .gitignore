@@ -36,3 +36,4 @@ vignettes/*.pdf
 *~
 *.ped
 *.info
+.Rproj.user

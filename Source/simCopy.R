@@ -1,5 +1,4 @@
 ## Simulation Setup 1 Codes
-## setwd("C:/Users/xshen/Desktop/Reasearch Projects/Deep Learning Project/Simulation/Simulation1/DeepLearningSimulation1")
 source("./Source/SimulationSetUp.R")
 
 dataList <- simSetUp();
